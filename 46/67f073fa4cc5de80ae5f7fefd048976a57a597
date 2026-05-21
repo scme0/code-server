@@ -1,0 +1,19 @@
+.github/workflows/build.yaml
+  s_12ecf203905e70::t_0c050a865ffbe7 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "4667f073fa4cc5de80ae5f7fefd048976a57a597",
+  "prompts": {},
+  "sessions": {
+    "s_12ecf203905e70": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "da0ffd16-4239-454c-84c2-8625948dcbd3",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "scme0 <scott.merchant@octopus.com>"
+    }
+  }
+}
