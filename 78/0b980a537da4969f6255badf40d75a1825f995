@@ -1,0 +1,19 @@
+Dockerfile
+  s_12ecf203905e70::t_43b64ee42fab85 1-15,20,33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "780b980a537da4969f6255badf40d75a1825f995",
+  "prompts": {},
+  "sessions": {
+    "s_12ecf203905e70": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "da0ffd16-4239-454c-84c2-8625948dcbd3",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "scme0 <scott.merchant@octopus.com>"
+    }
+  }
+}
