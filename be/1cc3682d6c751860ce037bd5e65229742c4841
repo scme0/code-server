@@ -1,0 +1,19 @@
+mobile-controller.js
+  s_4d41897f09e3ee::t_a63b5c0342c78a 21-23,29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "be1cc3682d6c751860ce037bd5e65229742c4841",
+  "prompts": {},
+  "sessions": {
+    "s_4d41897f09e3ee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "66b1d370-634a-40be-af4d-40b840daeb6f",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "scme0 <scott.merchant@octopus.com>"
+    }
+  }
+}
