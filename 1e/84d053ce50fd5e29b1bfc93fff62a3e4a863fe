@@ -1,0 +1,21 @@
+start-ttyd.sh
+  s_4d41897f09e3ee::t_698c7a31c74b10 29,36
+Dockerfile
+  s_4d41897f09e3ee::t_18d2ddbadb8605 38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.11",
+  "base_commit_sha": "1e84d053ce50fd5e29b1bfc93fff62a3e4a863fe",
+  "prompts": {},
+  "sessions": {
+    "s_4d41897f09e3ee": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "66b1d370-634a-40be-af4d-40b840daeb6f",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "scme0 <scott.merchant@octopus.com>"
+    }
+  }
+}
