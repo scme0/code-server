@@ -1,0 +1,128 @@
+work-kind/overlays/mount/repos-pv.yaml
+  s_5c177f0ca67f1c::t_d6c4bbebb3b255 1-17,19-21,23-30
+  s_5c177f0ca67f1c::t_466c8e70de8dd2 18,22
+work-kind/base/pvcs.yaml
+  s_5c177f0ca67f1c::t_d2a4eb5e864b7a 66-95
+  s_5c177f0ca67f1c::t_220ec511599708 1-5,11,25-26,28-30,33-65
+  s_5c177f0ca67f1c::t_1250361c7bf330 6-10,12-24,27,31-32
+work-kind/.env.example
+  s_5c177f0ca67f1c::t_5307a366a33326 59-63
+  s_5c177f0ca67f1c::t_71d5beaade5797 53-58
+  s_5c177f0ca67f1c::t_d78112bfda3a2e 12-22
+  s_5c177f0ca67f1c::t_5caf2d03a3dc43 25-37,44-45
+  s_5c177f0ca67f1c::t_a0d7a2ea02cf87 38-43
+  s_5cffa28dc9bb86::t_69e33d6db8e2b5 1-2,49-52,64,68-72
+  s_5c177f0ca67f1c::t_a28be9670f4518 46-48
+  s_5c177f0ca67f1c::t_62aa1e2b463869 3-11,23-24,65-67
+work-kind/up.sh
+  s_5c177f0ca67f1c::t_a93593749faea7 83-85,94-98
+  s_5c177f0ca67f1c::t_0b1750019600b0 100
+  s_5c177f0ca67f1c::t_6096140e15fefc 116
+  s_5c177f0ca67f1c::t_6b91e6ba67b56c 129-133
+  s_5c177f0ca67f1c::t_fb9e409552c2a5 36-47
+  s_5c177f0ca67f1c::t_30c6ebfccebd51 113-115,117-118
+  s_5cffa28dc9bb86::t_7ab38416568c2a 1-9,27-35,82,99,101-109,111-112,121,123-127,134-136
+  s_5c177f0ca67f1c::t_a1fc24da545b90 10-18,48,60-61,80-81,110,119-120,122,128
+  s_5c177f0ca67f1c::t_8eabc477988944 57-59,62-79
+  s_5c177f0ca67f1c::t_f8143a6ec28e0b 19-26
+  s_5c177f0ca67f1c::t_2f2fd657f17f80 49-56
+  s_5c177f0ca67f1c::t_7cd2a79ac40130 86-93
+work-kind/setup-secrets.sh
+  s_5cffa28dc9bb86::t_6246e2c527fd43 1-30
+work-kind/overlays/mount/kustomization.yaml
+  s_5c177f0ca67f1c::t_6f10d606b2699a 1-13
+work-kind/base/configmaps.yaml
+  s_5c177f0ca67f1c::t_baa8cba0313231 116,118-124
+  s_5c177f0ca67f1c::t_01c54b555bac38 49-50
+  s_5c177f0ca67f1c::t_c41e575b0803f9 56-115,117,125,128,130,140-160
+  s_5c177f0ca67f1c::t_061e8d470789ec 126-127,129,131-139
+  s_5c177f0ca67f1c::t_49d7df0ebf9aa6 161
+work-kind/base/deployment.yaml
+  s_5c177f0ca67f1c::t_6607c1ff3628e3 126-127
+  s_5c177f0ca67f1c::t_5d717defe24ae1 132
+  s_5c177f0ca67f1c::t_98fd305b5979d6 112-115
+  s_5c177f0ca67f1c::t_cb96f16c6d6a43 59-65
+  s_5c177f0ca67f1c::t_a23cae656c8bf4 91-92
+  s_5c177f0ca67f1c::t_1265c913c003a1 137,140-141
+  s_5c177f0ca67f1c::t_a4e739bfede590 1-28,32-58,66-77,80-83,87,93-104,110-111,116-125,128-131,133-136,138-139
+  s_5c177f0ca67f1c::t_6b23363f50ab7e 29-31
+  s_5c177f0ca67f1c::t_1083113dd7cb4b 78-79
+  s_5c177f0ca67f1c::t_329e37d8e3ca53 88-90
+  s_5c177f0ca67f1c::t_d15fbf8f0e23e1 84-86
+  s_5c177f0ca67f1c::t_6e24813a701a49 105-109
+work-kind/networkpolicy.yaml
+  s_5cffa28dc9bb86::t_cd389305b89e9b 1-32
+work-kind/base/kustomization.yaml
+  s_5c177f0ca67f1c::t_29dcca00b1b8bc 1-21
+work-kind/overlays/clone/patch-deployment.yaml
+  s_5c177f0ca67f1c::t_c7d594a7a302a6 64
+  s_5c177f0ca67f1c::t_d42862b1a189ec 1-3,13-14,22-23,28,52,54-56,58-60
+  s_5c177f0ca67f1c::t_d061f21be91805 4-12,15-21,24-27,29-51,53,57,61-63
+work-kind/overlays/mount/patch-deployment.yaml
+  s_5c177f0ca67f1c::t_72e7362965403c 1-3,13-14,19-21,25-26
+  s_5c177f0ca67f1c::t_b49bb955a4c01b 32
+  s_5c177f0ca67f1c::t_10fa0b85776a04 4-12,15-18,22-24,29-31
+  s_5c177f0ca67f1c::t_66fb5c357b2bcf 27-28
+work-kind/kind-cluster.yaml.tmpl
+  s_5c177f0ca67f1c::t_27fada7b4c76f2 36
+  s_5c177f0ca67f1c::t_c8fd0caad73688 25,27-28
+  s_5c177f0ca67f1c::t_a82159e2d954a8 11-23
+  s_5cffa28dc9bb86::t_d39df8ae4e0327 1-10,24
+  s_5c177f0ca67f1c::t_44e7a5fd2430ea 26,29-33,35
+  s_5c177f0ca67f1c::t_926cc130e610d0 34
+work-kind/down.sh
+  s_5cffa28dc9bb86::t_9c67100a8638bc 1-5
+work-kind/README.md
+  s_5c177f0ca67f1c::t_522bd1aae0ade5 60-61
+  s_5c177f0ca67f1c::t_cdc07b37c5afa8 20-21
+  s_5c177f0ca67f1c::t_c660dfada1c4f5 97-99,102,156-162,164-165
+  s_5c177f0ca67f1c::t_e5d20a7d0e8fc5 59,67-70
+  s_5cffa28dc9bb86::t_d7060c658246df 1-13,17-18,22-24,46-58,62-66,71-79,94-96,100-101,166-176,184-187
+  s_5c177f0ca67f1c::t_2b96f828db4d0e 85-86
+  s_5c177f0ca67f1c::t_1f0a4086645b1b 137-155
+  s_5c177f0ca67f1c::t_66bb3b5b6a5b99 103-115,119-132,136
+  s_5c177f0ca67f1c::t_7cfce2a9a2e863 14-16,19,25-39
+  s_5c177f0ca67f1c::t_e596abc466d8b0 133-135
+  s_5c177f0ca67f1c::t_1f8bf55d697627 40-45
+  s_5c177f0ca67f1c::t_3fb8651f55ee01 80-84,87-93
+  s_5c177f0ca67f1c::t_01f98c755786b9 177-183
+  s_5c177f0ca67f1c::t_3e605c40a27b2a 163
+  s_5c177f0ca67f1c::t_4a57f34325e970 116-118
+work-kind/.gitignore
+  s_5c177f0ca67f1c::t_7bff2b32dca5e8 3
+  s_5cffa28dc9bb86::t_d4bec6ad603ed8 1-2
+work-kind/overlays/clone/kustomization.yaml
+  s_5c177f0ca67f1c::t_1603866616a1c2 1-11
+work-kind/overlays/clone/workspace-pvc.yaml
+  s_5c177f0ca67f1c::t_f7a6f1002f4537 4,8
+  s_5c177f0ca67f1c::t_db4e6030db5582 1-3,5-7,9-15
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "fa3523a3782eea9006713491f7a3dfe69d166542",
+  "prompts": {},
+  "humans": {
+    "h_6bf39a942f1ef7": {
+      "author": "scme0 <scott.merchant@octopus.com>"
+    }
+  },
+  "sessions": {
+    "s_5c177f0ca67f1c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "12278cf3-339e-4976-af77-caeabb74be9b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "scme0 <scott.merchant@octopus.com>"
+    },
+    "s_5cffa28dc9bb86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2c71c224-fbaf-4b37-9e08-272c41ce080b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "scme0 <scott.merchant@octopus.com>"
+    }
+  }
+}
