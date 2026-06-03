@@ -1,0 +1,29 @@
+work-kind/up.sh
+  s_5c177f0ca67f1c::t_cf7c4d7de8a583 131-137,141,143,148
+  s_5c177f0ca67f1c::t_98f8ef69cd047e 7-11,14-17
+  s_5c177f0ca67f1c::t_5508631bee25d9 142,144-147,149-150
+  s_5c177f0ca67f1c::t_7378f9d76ba142 12-13
+  s_5c177f0ca67f1c::t_1ce8ee7ab5f263 138-140
+work-kind/README.md
+  s_5c177f0ca67f1c::t_27ca3ffa9cc2ed 77-78
+  s_5c177f0ca67f1c::t_6fb709c9327eb6 76,79,82-85
+work-kind/base/kustomization.yaml
+  s_5c177f0ca67f1c::t_6e6a44b8032302 19-20,23
+  s_5c177f0ca67f1c::t_ea5a696f4a1f28 18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "341327eae6294e352f6fb022eba27812f10561fe",
+  "prompts": {},
+  "sessions": {
+    "s_5c177f0ca67f1c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "12278cf3-339e-4976-af77-caeabb74be9b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "scme0 <scott.merchant@octopus.com>"
+    }
+  }
+}
