@@ -1,0 +1,21 @@
+zshrc
+  s_5c177f0ca67f1c::t_fb4300bbc1769f 24-29
+tmux.conf
+  s_5c177f0ca67f1c::t_4f8e5f64f20580 10-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "736bdf9bc410b3fb3864b743067d323f111776b8",
+  "prompts": {},
+  "sessions": {
+    "s_5c177f0ca67f1c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "12278cf3-339e-4976-af77-caeabb74be9b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "scme0 <scott.merchant@octopus.com>"
+    }
+  }
+}
