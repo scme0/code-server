@@ -1,0 +1,19 @@
+tmux.conf
+  s_5c177f0ca67f1c::t_51f270169a69a0 2,7-8,12-19,21-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a85ba7f5f473ae561ce255b668339e2e5b82fe40",
+  "prompts": {},
+  "sessions": {
+    "s_5c177f0ca67f1c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "12278cf3-339e-4976-af77-caeabb74be9b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "scme0 <scott.merchant@octopus.com>"
+    }
+  }
+}
