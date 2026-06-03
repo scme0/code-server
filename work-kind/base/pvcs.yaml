@@ -1,0 +1,95 @@
+# Volumes common to both modes. The workspace-backing volume is mode-specific
+# and defined by the overlay:
+#   overlays/clone → ephemeral `workspace` PVC
+#   overlays/mount → `repos` PV+PVC (host bind-mount)
+#
+# Sandbox state = all of /data: Claude auth + memories + history (under
+# ~/.claude, ~/.claude-home, ~/.claude-work), code-server state, and the shell
+# home. Host-persisted (STATE_DIR in .env) via kind extraMount → /mnt/state, so it
+# SURVIVES down.sh/recreate — you keep your login and memories. A dedicated dir,
+# separate from your real ~/.claude. Capacity is cosmetic for hostPath.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: sandbox-state
+spec:
+  capacity: { storage: 5Gi }
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: sandbox-state
+  hostPath:
+    path: /mnt/state
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sandbox-state
+  namespace: code-server-work
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: sandbox-state
+  volumeName: sandbox-state
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Work notes from the host (kind extraMount → node:/mnt/notes), exposed via a
+# PV+PVC so the pod mounts a PVC (baseline-PSA allows it) rather than a raw
+# hostPath volume (which baseline forbids). Set NOTES_DIR in .env to your real
+# notes dir; up.sh wires it into the kind mount.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: work-notes
+spec:
+  capacity: { storage: 5Gi }
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: work-notes
+  hostPath:
+    path: /mnt/notes
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: notes
+  namespace: code-server-work
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: work-notes
+  volumeName: work-notes
+  resources:
+    requests:
+      storage: 5Gi
+---
+# Dotfiles source for DOTFILES_MODE=host|chezmoi: a host dir (DOTFILES_SRC in .env)
+# bind-mounted RO via kind extraMount → node:/mnt/dotfiles-src → this PV/PVC. In
+# default|none mode nothing is mounted there (DirectoryOrCreate yields an empty
+# dir) and the init script ignores it. Capacity is cosmetic for hostPath.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: dotfiles-src
+spec:
+  capacity: { storage: 1Gi }
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: dotfiles-src
+  hostPath:
+    path: /mnt/dotfiles-src
+    type: DirectoryOrCreate
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: dotfiles-src
+  namespace: code-server-work
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: dotfiles-src
+  volumeName: dotfiles-src
+  resources:
+    requests:
+      storage: 1Gi

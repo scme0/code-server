@@ -1,0 +1,4 @@
+.claude/
+.env
+kind-cluster.yaml
+.DS_Store

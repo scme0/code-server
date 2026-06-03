@@ -1,0 +1,184 @@
+# Global git config for the sandbox: rewrite all GitHub URLs to the localhost
+# git-proxy sidecar, so no credential ever lives in Claude's container.
+# Referenced via GIT_CONFIG_GLOBAL (see deployment.yaml).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: git-config
+  namespace: code-server-work
+data:
+  gitconfig: |
+    [url "http://localhost:8088/"]
+        insteadOf = https://github.com/
+    [url "http://localhost:8088/"]
+        insteadOf = git@github.com:
+    [safe]
+        directory = *
+    # Pull in the user's identity (user.name/email) from chezmoi's ~/.gitconfig.
+    # GIT_CONFIG_GLOBAL points here, which otherwise BYPASSES ~/.gitconfig — so
+    # sandbox commits would have no author. Missing file → git ignores the include
+    # (colleagues without chezmoi just set their own identity once).
+    [include]
+        path = ~/.gitconfig
+---
+# Repos pre-cloned (and reset --hard origin) into /data/workspace each boot.
+# Default list; override per person via CLONE_REPOS in .env (up.sh rewrites this
+# configmap from it) — or edit the slugs below.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: work-repos
+  namespace: code-server-work
+data:
+  repos: |
+    your-org/your-service
+    your-org/your-lib
+    your-org/helm-charts
+---
+# Minimal Claude config, force-reset into the config PVC each boot so nothing
+# executable (settings/hooks) persists attacker-controlled across restarts.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: claude-config
+  namespace: code-server-work
+data:
+  CLAUDE.md: |
+    # Work sandbox (kind)
+
+    Running in an isolated local kind cluster. Notes:
+    - Git access is via a localhost proxy; there is no GitHub token in this
+      container. `git` works normally (clone/fetch/push to allowed repos).
+    - clone mode: the workspace is reset to `origin` each boot (commit/push to keep
+      work). mount mode: your repos are bind-mounted live from the host.
+    - Heavy build/test tooling runs in disposable pods via `k8s-run`.
+  settings.json: |
+    {
+      "includeCoAuthoredBy": true
+    }
+---
+# Shell/dotfiles provisioning. `zshrc` is the sensible default; `common-init.sh`
+# is the shared boot script both overlays' init containers call (Claude config +
+# dotfiles, gated by DOTFILES_MODE). Keeps the per-overlay init small.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shell-config
+  namespace: code-server-work
+data:
+  common-init.sh: |
+    #!/usr/bin/env bash
+    # Shared boot setup, run as root in an init container: Claude config + shell
+    # dotfiles + the multi-root workspace file. DOTFILES_MODE selects the source.
+    set -e
+    : "${DOTFILES_MODE:=default}"
+    echo "==> dotfiles mode: $DOTFILES_MODE"
+
+    mkdir -p /data/home/.claude /data/code-server
+
+    # Seed Claude config on FIRST boot only (CLAUDE_CONFIG_DIR defaults to
+    # ~/.claude = /data/home/.claude). Your persisted/dotfiles config is kept;
+    # delete a file to re-seed it. Trade-off vs the old per-boot force-reset:
+    # for the locked/shareable scenario, change `||` seeding back to an
+    # unconditional cp so nothing executable persists across boots.
+    [ -f /data/home/.claude/CLAUDE.md ]     || cp /etc/claude-config/CLAUDE.md     /data/home/.claude/CLAUDE.md
+    [ -f /data/home/.claude/settings.json ] || cp /etc/claude-config/settings.json /data/home/.claude/settings.json
+
+    # Single-root workspace; notes (if enabled) appear via the symlink below, in
+    # both the terminal and VS Code. Watcher excludes keep code-server fast.
+    cat > /data/.sandbox.code-workspace <<'WS'
+    { "folders": [ { "path": "/data/workspace", "name": "workspace" } ], "settings": { "files.watcherExclude": { "**/.git/objects/**": true, "**/.git/subtree-cache/**": true, "**/node_modules/**": true, "**/bin/**": true, "**/obj/**": true, "**/dist/**": true, "**/.terraform/**": true }, "search.exclude": { "**/node_modules": true, "**/bin": true, "**/obj": true, "**/dist": true }, "files.exclude": { "**/.git": false } } }
+    WS
+
+    # Notes (optional): symlink /mnt/notes into the workspace so it shows in both
+    # the terminal and VS Code. Skipped entirely if notes are disabled.
+    if [ -n "${NOTES_ENABLED:-}" ]; then
+      ln -sfn /mnt/notes /data/workspace/notes 2>/dev/null \
+        || echo "WARN could not create notes symlink (workspace not writable in init)"
+    else
+      rm -f /data/workspace/notes 2>/dev/null || true
+    fi
+
+    # Shell baseline lives in the IMAGE at /etc/zsh/zshrc (every user gets it, any
+    # mode). These modes only add a PERSONAL ~/.zshrc on top.
+    case "$DOTFILES_MODE" in
+      default|none) : ;;
+      host)
+        if [ -f /mnt/dotfiles-src/.zshrc ]; then cp /mnt/dotfiles-src/.zshrc /data/home/.zshrc
+        elif [ -n "$(ls -A /mnt/dotfiles-src 2>/dev/null)" ]; then cp -a /mnt/dotfiles-src/. /data/home/
+        else echo "WARN host dotfiles empty — using image /etc/zsh/zshrc baseline"; fi ;;
+      chezmoi)
+        if [ -n "$(ls -A /mnt/dotfiles-src 2>/dev/null)" ]; then
+          chown -R 1000:1000 /data/home
+          # --exclude=scripts,encrypted: never run run_* scripts or decrypt in the
+          # sandbox. CODE_SERVER_SANDBOX=1 lets your .chezmoiignore gate .kube/.talos.
+          runuser -u node -- env HOME=/data/home CODE_SERVER_SANDBOX=1 \
+            chezmoi apply --source /mnt/dotfiles-src --exclude=scripts,encrypted --force \
+            || echo "WARN chezmoi apply failed — check the sandbox gate in .chezmoiignore"
+        else echo "WARN chezmoi source empty — using image baseline"; fi ;;
+      *) echo "WARN unknown DOTFILES_MODE=$DOTFILES_MODE — using image baseline" ;;
+    esac
+
+    # Install the k8s-run skill into every Claude config dir present, so the agent
+    # auto-loads it regardless of which CLAUDE_CONFIG_DIR the `claude` alias uses.
+    for cfg in /data/home/.claude /data/home/.claude-*; do
+      [ -d "$cfg" ] || continue
+      mkdir -p "$cfg/skills/k8s-run"
+      cp /etc/shell-config/k8s-run-skill "$cfg/skills/k8s-run/SKILL.md"
+    done
+
+    chown -R 1000:1000 /data/home /data/code-server /data/.sandbox.code-workspace
+  # Shipped as a personal skill (copied into each config dir by common-init above),
+  # so the agent auto-loads it. k8s-run itself is baked into the image + on PATH.
+  k8s-run-skill: |
+    ---
+    name: k8s-run
+    description: >
+      Use when asked to run tests, build, lint, or analyze a project whose
+      runtime/SDK is NOT installed in this code-server container — e.g. "run the
+      tests", "build the project", "dotnet build", "flutter test", "npm test",
+      "go test", "run in a pod". k8s-run executes the command in a disposable
+      Kubernetes pod with a toolchain image you choose, mounting the workspace.
+    ---
+
+    # k8s-run — disposable k8s pods for build/test/analyze
+
+    `k8s-run` runs any command in a throwaway pod with read-write access to
+    `/data/workspace`. Use it whenever this container lacks the required runtime.
+
+    ## When to use
+    - Run tests/build/lint/analyze and the tool (dotnet, flutter, node, go, rust,
+      python, ...) isn't installed here ("command not found").
+    - User says "run in a pod" / "use k8s-run".
+
+    Do NOT use for editing files, reading code, git, or kubectl — those work locally.
+
+    ## CLI
+    ```
+    k8s-run --image IMAGE --cmd CMD [--dir RELDIR] [--keep] [--timeout SEC]
+    ```
+    Namespace + workspace PVC are preset for this sandbox (KRUN_NS env) — do NOT
+    pass --ns/--pvc. `--dir` is a path under /data/workspace (slashes are fine).
+
+    ## Common images
+    | Tool | Image |
+    |---|---|
+    | .NET / C# | mcr.microsoft.com/dotnet/sdk:10.0 |
+    | Node | node:20, node:22 |
+    | Go | golang:1.22 |
+    | Python | python:3.12 |
+    | Rust | rust:1.78 |
+    | Flutter | ghcr.io/cirruslabs/flutter:stable |
+
+    ## Examples
+    ```bash
+    k8s-run --image mcr.microsoft.com/dotnet/sdk:10.0 --dir my-service/source --cmd "dotnet build My.sln --nologo"
+    k8s-run --image node:20 --dir my-webapp --cmd "npm ci && npm test"
+    k8s-run --image golang:1.22 --dir my-service --cmd "go test ./..."
+    ```
+
+    ## Notes
+    - Output streams live; the pod auto-deletes after (use --keep to inspect).
+    - Debug a kept pod: kubectl logs -n code-server-work <pod> ;
+      kubectl exec -n code-server-work <pod> -- sh
+    - Stale krun pods (>1 day) are auto-cleaned each run.

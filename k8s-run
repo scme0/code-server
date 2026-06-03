@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+# Generic k8s pod runner — mounts workspace PVC and runs a command in any image.
+# Usage: k8s-run --image IMAGE --cmd CMD [--dir RELDIR] [--ns NS] [--pvc PVC] [--keep] [--timeout SEC]
+set -euo pipefail
+
+IMAGE=""
+RELDIR=""
+CMD=""
+NAMESPACE="${KRUN_NS:-code-server}"
+PVC="${KRUN_PVC:-code-server-workspace}"
+KEEP=false
+TIMEOUT=600
+
+usage() {
+  cat <<'EOF'
+k8s-run: run a command in a disposable k8s pod with workspace access
+
+  --image    IMAGE   container image to use (required)
+  --cmd      CMD     shell command to run (required)
+  --dir      RELDIR  path relative to /data/workspace (default: workspace root)
+  --ns       NS      kubernetes namespace (default: code-server)
+  --pvc      PVC     workspace PVC to mount at /data/workspace (default: code-server-workspace)
+  --keep             keep pod after completion for inspection
+  --timeout  SEC     max seconds to wait for completion (default: 600)
+
+Examples:
+  k8s-run --image ghcr.io/cirruslabs/flutter:stable --dir myapp --cmd "flutter test"
+  k8s-run --image node:20 --dir webapp --cmd "npm ci && npm test"
+  k8s-run --image golang:1.22 --dir myservice --cmd "go test ./..."
+EOF
+  exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --image)   IMAGE="$2";     shift 2;;
+    --dir)     RELDIR="$2";    shift 2;;
+    --cmd)     CMD="$2";       shift 2;;
+    --ns)      NAMESPACE="$2"; shift 2;;
+    --pvc)     PVC="$2";       shift 2;;
+    --keep)    KEEP=true;      shift;;
+    --timeout) TIMEOUT="$2";   shift 2;;
+    -h|--help) usage;;
+    *)         echo "Unknown arg: $1"; usage;;
+  esac
+done
+
+[[ -z "$IMAGE" ]] && { echo "Error: --image required"; usage; }
+[[ -z "$CMD"   ]] && { echo "Error: --cmd required";   usage; }
+
+# Clean up stale krun pods (finished, older than 1 day) before each run
+STALE=$(kubectl get pod -n "$NAMESPACE" -l app=krun \
+  -o json 2>/dev/null | \
+  jq -r --argjson cutoff "$(date -d '1 day ago' +%s)" \
+  '.items[] | select((.metadata.creationTimestamp | fromdateiso8601) < $cutoff) | .metadata.name' \
+  2>/dev/null || echo "")
+if [[ -n "$STALE" ]]; then
+  echo "==> Cleaning stale pods: $(echo "$STALE" | tr '\n' ' ')"
+  echo "$STALE" | xargs kubectl delete pod -n "$NAMESPACE" --wait=false 2>/dev/null || true
+fi
+
+WORKDIR="/data/workspace${RELDIR:+/$RELDIR}"
+IMAGE_SHORT=$(basename "${IMAGE}" | sed 's/:.*$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | cut -c1-24)
+# k8s label values can't contain '/' (or other invalid chars) — sanitize. The
+# workspace path (WORKDIR) keeps the real RELDIR; only this label is cleaned.
+DIR_LABEL=$(echo "${RELDIR:-root}" | sed 's#[^A-Za-z0-9._-]#-#g; s#^[._-]*##; s#[._-]*$##' | cut -c1-63)
+DIR_LABEL="${DIR_LABEL:-root}"
+POD_NAME="krun-${IMAGE_SHORT}-$(date +%s)"
+
+echo "==> Pod:     $POD_NAME"
+echo "    Image:   $IMAGE"
+echo "    Workdir: $WORKDIR"
+echo "    Cmd:     $CMD"
+echo ""
+
+POD_JSON=$(jq -n \
+  --arg name    "$POD_NAME" \
+  --arg ns      "$NAMESPACE" \
+  --arg image   "$IMAGE" \
+  --arg workdir "$WORKDIR" \
+  --arg cmd     "$CMD" \
+  --arg pvc     "$PVC" \
+  --arg ishort  "$IMAGE_SHORT" \
+  --arg dir     "$DIR_LABEL" \
+  '{
+    apiVersion: "v1",
+    kind: "Pod",
+    metadata: {
+      name: $name,
+      namespace: $ns,
+      labels: {app: "krun", "krun-image": $ishort, "krun-dir": $dir}
+    },
+    spec: {
+      restartPolicy: "Never",
+      affinity: {
+        podAffinity: {
+          requiredDuringSchedulingIgnoredDuringExecution: [{
+            labelSelector: {
+              matchLabels: {"app.kubernetes.io/name": "code-server"}
+            },
+            topologyKey: "kubernetes.io/hostname"
+          }]
+        }
+      },
+      volumes: [{
+        name: "workspace",
+        persistentVolumeClaim: {claimName: $pvc}
+      }],
+      containers: [{
+        name: "runner",
+        image: $image,
+        workingDir: $workdir,
+        command: ["/bin/sh", "-c", $cmd],
+        securityContext: {
+          allowPrivilegeEscalation: false,
+          capabilities: {drop: ["ALL"]},
+          seccompProfile: {type: "RuntimeDefault"}
+        },
+        volumeMounts: [{
+          name: "workspace",
+          mountPath: "/data/workspace",
+          mountPropagation: "HostToContainer"
+        }]
+      }]
+    }
+  }')
+
+echo "$POD_JSON" | kubectl apply -f - >/dev/null
+
+# Wait for pod to leave Pending (image pull can take time)
+echo "==> Waiting for pod to start..."
+for i in $(seq 1 90); do
+  PHASE=$(kubectl get pod "$POD_NAME" -n "$NAMESPACE" \
+    -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+  [[ "$PHASE" != "Pending" && -n "$PHASE" ]] && break
+  if (( i % 5 == 0 )); then
+    EVENT=$(kubectl get events -n "$NAMESPACE" \
+      --field-selector "involvedObject.name=$POD_NAME" \
+      --sort-by='.lastTimestamp' \
+      -o jsonpath='{.items[-1].message}' 2>/dev/null || echo "")
+    echo "    phase=Pending ${EVENT:+(${EVENT:0:70})}"
+  fi
+  sleep 2
+done
+
+PHASE=$(kubectl get pod "$POD_NAME" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+if [[ "$PHASE" == "Pending" || -z "$PHASE" ]]; then
+  echo "Error: pod stuck in Pending"
+  kubectl get events -n "$NAMESPACE" --field-selector "involvedObject.name=$POD_NAME" --sort-by='.lastTimestamp' || true
+  [[ "$KEEP" == false ]] && kubectl delete pod "$POD_NAME" -n "$NAMESPACE" --wait=false 2>/dev/null || true
+  exit 1
+fi
+
+echo ""
+echo "--- OUTPUT ---"
+kubectl logs -n "$NAMESPACE" -f "$POD_NAME" 2>/dev/null || true
+echo "--- END ---"
+echo ""
+
+# When `kubectl logs -f` returns, the container's terminated state (and exitCode)
+# may not be committed to the API yet, so reading it immediately yields an empty
+# string and we'd report "FAILED (exit=)" on a successful run. Poll until the
+# exitCode is available, falling back to the pod phase.
+EXIT_CODE=""
+for i in $(seq 1 30); do
+  EXIT_CODE=$(kubectl get pod "$POD_NAME" -n "$NAMESPACE" \
+    -o jsonpath='{.status.containerStatuses[0].state.terminated.exitCode}' 2>/dev/null || echo "")
+  [[ -n "$EXIT_CODE" ]] && break
+  sleep 1
+done
+if [[ -z "$EXIT_CODE" ]]; then
+  PHASE=$(kubectl get pod "$POD_NAME" -n "$NAMESPACE" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+  case "$PHASE" in
+    Succeeded) EXIT_CODE=0;;
+    *)         EXIT_CODE=1;;
+  esac
+fi
+
+if [[ "$KEEP" == true ]]; then
+  echo "==> Kept (exit=$EXIT_CODE). Inspect: kubectl logs -n $NAMESPACE $POD_NAME"
+  echo "    Delete:  kubectl delete pod $POD_NAME -n $NAMESPACE"
+else
+  kubectl delete pod "$POD_NAME" -n "$NAMESPACE" --wait=false 2>/dev/null || true
+fi
+
+if [[ "${EXIT_CODE}" == "0" ]]; then
+  echo "==> SUCCESS"
+  exit 0
+else
+  echo "==> FAILED (exit=$EXIT_CODE)"
+  exit 1
+fi

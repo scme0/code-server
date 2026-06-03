@@ -1,0 +1,32 @@
+# MOUNT mode patch: point the `workspace` volume at the host repos PVC and run the
+# shared init (config + dotfiles). Deliberately does NOT touch /data/workspace
+# (those are your real host files) — no clone, no chown of repos.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-server
+  namespace: code-server-work
+spec:
+  template:
+    spec:
+      initContainers:
+        # Runs after the git-proxy sidecar (kept from base). Shared boot script:
+        # Claude config + dotfiles + workspace file; never writes /data/workspace.
+        - name: init-config
+          image: scottyjoe9/code-server:3412923
+          securityContext:
+            runAsUser: 0                  # to chown the config PVC dirs
+          envFrom:
+            - configMapRef: { name: dotfiles-config, optional: true }
+          command: [bash, /etc/shell-config/common-init.sh]
+          volumeMounts:
+            - { name: config,            mountPath: /data }
+            - { name: claude-config-src, mountPath: /etc/claude-config }
+            - { name: shell-config,      mountPath: /etc/shell-config }
+            - { name: dotfiles-src,      mountPath: /mnt/dotfiles-src }
+            # mounted so common-init.sh can drop the notes symlink in here (root)
+            - { name: workspace,         mountPath: /data/workspace }
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: code-server-workspace

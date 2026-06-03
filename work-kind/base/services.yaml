@@ -1,0 +1,15 @@
+# NodePort service. The fixed nodePorts are published to the host by kind's
+# extraPortMappings (see kind-cluster.yaml.tmpl): host 127.0.0.1:4444 → 30444,
+# 127.0.0.1:7681 → 30681. No kubectl port-forward needed; survives docker start.
+apiVersion: v1
+kind: Service
+metadata:
+  name: code-server
+  namespace: code-server-work
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: code-server
+  ports:
+    - { name: code-server, port: 8080, targetPort: 8080, nodePort: 30444 }
+    - { name: ttyd, port: 7681, targetPort: 7681, nodePort: 30681 }

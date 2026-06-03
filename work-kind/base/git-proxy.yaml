@@ -1,0 +1,21 @@
+# Caddy config for the git-proxy sidecar. Reverse-proxies localhost:8088 →
+# github.com, injecting the GitHub auth header from the GH_AUTH_B64 env (sourced
+# from the git-proxy-auth secret). Claude's container only ever talks to
+# localhost:8088 and never sees the token — that's the whole point.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: git-proxy-caddy
+  namespace: code-server-work
+data:
+  Caddyfile: |
+    {
+        admin off
+        auto_https off
+    }
+    :8088 {
+        reverse_proxy https://github.com {
+            header_up Host github.com
+            header_up Authorization "Basic {$GH_AUTH_B64}"
+        }
+    }

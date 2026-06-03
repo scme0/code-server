@@ -1,0 +1,30 @@
+# Host repos bind-mount, exposed via a PV+PVC (baseline-PSA forbids a raw
+# hostPath volume in the pod, but a PVC backed by a hostPath PV is allowed).
+# The hostPath /mnt/repos is your REPOS_DIR, wired in by up.sh via the kind
+# extraMount. Capacity is ignored for hostPath; the number is cosmetic.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: host-repos
+spec:
+  capacity: { storage: 100Gi }
+  accessModes: [ReadWriteOnce]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: host-repos
+  hostPath:
+    path: /mnt/repos
+    type: DirectoryOrCreate
+---
+# Named code-server-workspace to match k8s-run's default PVC (portable with home).
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: code-server-workspace
+  namespace: code-server-work
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: host-repos
+  volumeName: host-repos
+  resources:
+    requests:
+      storage: 100Gi

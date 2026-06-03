@@ -1,0 +1,64 @@
+# CLONE mode patch: add the reset-on-boot init container (shared init for config +
+# dotfiles, then clone/refresh the repos into the ephemeral workspace PVC) and
+# point the `workspace` volume at it.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: code-server
+  namespace: code-server-work
+spec:
+  template:
+    spec:
+      initContainers:
+        # Runs after the git-proxy sidecar (kept from base). Shared boot script
+        # first (config + dotfiles + workspace file), then clone/reset each repo.
+        - name: reset-repos
+          image: scottyjoe9/code-server:3412923
+          securityContext:
+            runAsUser: 0                  # to chown into the PVCs
+          env:
+            - name: GIT_CONFIG_GLOBAL
+              value: /etc/git/gitconfig
+          envFrom:
+            - configMapRef: { name: dotfiles-config, optional: true }
+          command: [bash, -lc]
+          args:
+            - |
+              set -e
+              bash /etc/shell-config/common-init.sh
+
+              # Wait for the git-proxy sidecar to be listening.
+              for i in $(seq 1 30); do
+                if curl -sf -o /dev/null "http://localhost:8088/"; then break; fi
+                echo "waiting for git-proxy ($i)…"; sleep 1
+              done
+
+              # Clone or hard-reset each repo to its remote default branch.
+              while IFS= read -r slug || [ -n "$slug" ]; do
+                [ -z "$slug" ] && continue
+                dest="/data/workspace/$(basename "$slug")"
+                if [ -d "$dest/.git" ]; then
+                  echo "Refreshing $dest"
+                  git -C "$dest" fetch --prune origin || { echo "WARN fetch $slug"; continue; }
+                  git -C "$dest" remote set-head origin --auto >/dev/null 2>&1 || true
+                  git -C "$dest" reset --hard origin/HEAD 2>/dev/null || true
+                  git -C "$dest" clean -fdq || true
+                else
+                  echo "Cloning $slug"
+                  git clone "https://github.com/${slug}.git" "$dest" || echo "WARN clone failed: $slug"
+                fi
+              done < /config/repos
+
+              chown -R 1000:1000 /data/workspace
+          volumeMounts:
+            - { name: config,            mountPath: /data }
+            - { name: workspace,         mountPath: /data/workspace }
+            - { name: git-config,        mountPath: /etc/git }
+            - { name: claude-config-src, mountPath: /etc/claude-config }
+            - { name: work-repos,        mountPath: /config }
+            - { name: shell-config,      mountPath: /etc/shell-config }
+            - { name: dotfiles-src,      mountPath: /mnt/dotfiles-src }
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: code-server-workspace

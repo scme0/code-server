@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# CLONE mode: repos are cloned (and `git reset --hard origin`) into an ephemeral
+# PVC on every boot. Nothing persists; the PAT needs write to push branches.
+resources:
+  - ../../base
+  - workspace-pvc.yaml
+
+patches:
+  - path: patch-deployment.yaml

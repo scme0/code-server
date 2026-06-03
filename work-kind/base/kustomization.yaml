@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Common base for both modes. Not applied directly — pick an overlay:
+#   kubectl apply -k overlays/mount   (default; host repos bind-mounted)
+#   kubectl apply -k overlays/clone   (ephemeral; repos cloned each boot)
+# Secrets are created out-of-band by setup-secrets.sh (from 1Password), not
+# committed. networkpolicy.yaml (top level) is optional/opt-in.
+resources:
+  - namespace.yaml
+  - rbac.yaml
+  - pvcs.yaml
+  - configmaps.yaml
+  - git-proxy.yaml
+  - services.yaml
+  - deployment.yaml
+
+# Image tag. up.sh overrides this with the current git commit SHA (or --tag) — CI
+# tags images by short SHA, so it tracks your checkout. `latest` here is just the
+# fallback for direct `kubectl apply -k overlays/...` (CI also publishes latest).
+images:
+  - name: scottyjoe9/code-server
+    newTag: "latest"
