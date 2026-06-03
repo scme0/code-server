@@ -1,0 +1,28 @@
+Dockerfile
+  s_5c177f0ca67f1c::t_823d47266f5998 81
+  s_5c177f0ca67f1c::t_50abb045a5b7a9 80
+zshrc
+  s_5c177f0ca67f1c::t_54808517c8ac65 1-40
+tmux.conf
+  s_5c177f0ca67f1c::t_b387a6776f8bb4 1-14
+work-kind/base/configmaps.yaml
+  s_5c177f0ca67f1c::t_7853eac6450e15 17-22
+  s_5c177f0ca67f1c::t_9ca81a35bbc529 105-106,108,112,121-122
+  s_5c177f0ca67f1c::t_37883a5b6775b6 125-132,134-187
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "99d2e3093246a666c26a2fff57e700f03a84c5a5",
+  "prompts": {},
+  "sessions": {
+    "s_5c177f0ca67f1c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "12278cf3-339e-4976-af77-caeabb74be9b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "scme0 <scott.merchant@octopus.com>"
+    }
+  }
+}
