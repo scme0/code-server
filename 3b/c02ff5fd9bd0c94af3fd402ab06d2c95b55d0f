@@ -1,0 +1,19 @@
+work-kind/base/kustomization.yaml
+  s_5c177f0ca67f1c::t_68e5345c11f55c 21
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3bc02ff5fd9bd0c94af3fd402ab06d2c95b55d0f",
+  "prompts": {},
+  "sessions": {
+    "s_5c177f0ca67f1c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "12278cf3-339e-4976-af77-caeabb74be9b",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "scme0 <scott.merchant@octopus.com>"
+    }
+  }
+}
