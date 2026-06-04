@@ -2,8 +2,35 @@
 FROM node:22-bookworm-slim AS builder
 
 RUN apt-get update -qq && \
-    apt-get install -y -qq --no-install-recommends curl ca-certificates gnupg && \
+    apt-get upgrade -y -qq && \
+    apt-get install -y -qq --no-install-recommends curl ca-certificates gnupg xz-utils && \
     rm -rf /var/lib/apt/lists/*
+
+# git — build current from source. Bookworm apt ships 2.39; build deps stay in the
+# builder, only the compiled tree (+ a few runtime libs) lands in prod.
+RUN apt-get update -qq && \
+    apt-get install -y -qq --no-install-recommends \
+      build-essential perl libssl-dev libcurl4-openssl-dev libexpat1-dev gettext zlib1g-dev && \
+    GIT_VER=2.54.0 && \
+    curl -fsSL "https://www.kernel.org/pub/software/scm/git/git-${GIT_VER}.tar.xz" -o /tmp/git.tar.xz && \
+    mkdir -p /tmp/git && tar -xJf /tmp/git.tar.xz -C /tmp/git --strip-components=1 && \
+    make -C /tmp/git prefix=/usr/local NO_TCLTK=1 -j"$(nproc)" all && \
+    make -C /tmp/git prefix=/usr/local NO_TCLTK=1 DESTDIR=/tmp/gitroot install && \
+    rm -rf /tmp/git /tmp/git.tar.xz /var/lib/apt/lists/*
+
+# fzf + zoxide + jq — current upstream binaries. Bookworm apt ships fzf 0.38 (no `--zsh`),
+# zoxide 0.4.3 (whose `cd` wrapper recurses; see dotfiles _z_cd note), and jq 1.6.
+RUN ARCH=$(dpkg --print-architecture) && \
+    FZF_VER=$(curl -s https://api.github.com/repos/junegunn/fzf/releases/latest \
+      | grep '"tag_name"' | head -1 | cut -d'"' -f4 | sed 's/^v//') && \
+    curl -sL "https://github.com/junegunn/fzf/releases/download/v${FZF_VER}/fzf-${FZF_VER}-linux_${ARCH}.tar.gz" \
+      | tar xz -C /usr/local/bin fzf && \
+    JQ_VER=$(curl -s https://api.github.com/repos/jqlang/jq/releases/latest \
+      | grep '"tag_name"' | head -1 | cut -d'"' -f4 | sed 's/^jq-//') && \
+    curl -sL "https://github.com/jqlang/jq/releases/download/jq-${JQ_VER}/jq-linux-${ARCH}" \
+      -o /usr/local/bin/jq && chmod +x /usr/local/bin/jq && \
+    curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh \
+      | sh -s -- --bin-dir /usr/local/bin
 
 # code-server
 RUN curl -fsSL https://code-server.dev/install.sh | sh
@@ -54,8 +81,10 @@ RUN curl -sS https://downloads.1password.com/linux/keys/1password.asc | \
 FROM debian:bookworm-slim
 
 RUN apt-get update -qq && \
+    apt-get upgrade -y -qq && \
     apt-get install -y -qq --no-install-recommends \
-      curl ca-certificates openssh-client git zsh tmux fzf zoxide jq && \
+      curl ca-certificates openssh-client zsh tmux python3 python3-pip \
+      libcurl4 libexpat1 zlib1g gettext-base perl && \
     rm -rf /var/lib/apt/lists/*
 
 # claude-code modules (uses code-server's bundled node — no second node binary needed)
@@ -72,6 +101,11 @@ COPY --from=builder /usr/local/bin/kubectl /usr/local/bin/kubectl
 COPY --from=builder /usr/local/bin/chezmoi /usr/local/bin/chezmoi
 COPY --from=builder /usr/bin/op /usr/local/bin/op
 COPY --from=builder /usr/bin/gh /usr/local/bin/gh
+COPY --from=builder /usr/local/bin/fzf /usr/local/bin/fzf
+COPY --from=builder /usr/local/bin/zoxide /usr/local/bin/zoxide
+COPY --from=builder /usr/local/bin/jq /usr/local/bin/jq
+# git (built from source in builder; whole install tree → /usr/local)
+COPY --from=builder /tmp/gitroot/usr/local/ /usr/local/
 
 # scripts
 COPY mobile-controller.js /usr/local/lib/mobile-controller.js
@@ -79,6 +113,8 @@ COPY start-ttyd.sh /usr/local/bin/start-ttyd.sh
 COPY k8s-run /usr/local/bin/k8s-run
 COPY tmux.conf /etc/tmux.conf
 COPY zshrc /etc/zsh/zshrc
+# sandbox-specific Claude skills (common-init.sh copies these into ~/.claude*/skills)
+COPY skills/ /etc/claude-skills/
 RUN chmod +x /usr/local/bin/start-ttyd.sh /usr/local/bin/k8s-run
 
 # Real Node.js from builder (includes npm/npx) — code-server's bundled node is not a full install
