@@ -30,42 +30,15 @@ spec:
         # if wrong, never recursively chown your persisted state on every mount.
         fsGroupChangePolicy: OnRootMismatch
 
-      initContainers:
-        # --- native sidecar: git proxy (starts and stays up for the pod) -------
-        # Holds the GitHub token (GH_AUTH_B64) and injects it; Claude's containers
-        # only ever talk to localhost:8088 and never see the token.
-        # The overlays append their own boot init container after this one.
-        - name: git-proxy
-          image: caddy:2.10-alpine
-          restartPolicy: Always          # => native sidecar (k8s 1.29+; GA 1.33)
-          env:
-            - name: GH_AUTH_B64
-              valueFrom:
-                secretKeyRef:
-                  name: git-proxy-auth
-                  key: gh-auth-b64
-            # caddy runs as uid 1000 (pod securityContext) — give it writable
-            # data/config dirs so it doesn't fail trying to write to /.
-            - { name: XDG_DATA_HOME, value: /tmp }
-            - { name: XDG_CONFIG_HOME, value: /tmp }
-          command: [caddy, run, --config, /etc/caddy/Caddyfile, --adapter, caddyfile]
-          ports:
-            - containerPort: 8088
-          volumeMounts:
-            - name: caddy-config
-              mountPath: /etc/caddy
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
-              # caddy's binary carries the cap_net_bind_service FILE capability;
-              # with drop:ALL it's outside the bounding set and execve fails EPERM
-              # ("operation not permitted"). Caddy only binds :8088 so it isn't
-              # used — but the file cap must be within the bounding set to exec.
-              add: ["NET_BIND_SERVICE"]
-
+      # No in-pod git-proxy sidecar: git, web egress and the Anthropic API all go
+      # through the out-of-cluster boundary gateway (GATEWAY_IP, injected by up.sh).
+      # The GitHub + Anthropic credentials live in that gateway container, not here.
       containers:
         - name: code-server
+          securityContext: &hardened
+            allowPrivilegeEscalation: false
+            capabilities: { drop: ["ALL"] }
+            seccompProfile: { type: RuntimeDefault }
           image: scottyjoe9/code-server:3412923
           command:
             - code-server
@@ -90,17 +63,29 @@ spec:
             - { name: CODE_SERVER_SANDBOX, value: "1" }
             # k8s-run defaults (PVC is code-server-workspace by default — matches)
             - { name: KRUN_NS, value: code-server-work }
-            - { name: GITSTATUS_CACHE_DIR, value: /tmp/gitstatus }
+            # Persisted (not /tmp) so p10k's gitstatusd downloads once EVER and
+            # survives pod restarts — otherwise every fresh pod re-downloads it and
+            # the first cold shell races the proxy/DNS warm-up and fails.
+            - { name: GITSTATUS_CACHE_DIR, value: /data/home/.cache/gitstatus }
             - { name: LANG, value: C.UTF-8 }
             - { name: LC_ALL, value: C.UTF-8 }
-            # Optional: ANTHROPIC_API_KEY from a secret if present, else
-            # `claude /login` interactively (persists on the config PVC).
-            - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: anthropic-api-key
-                  key: api-key
-                  optional: true
+            # All web/CLI egress goes through the gateway's forward proxy; the
+            # gateway only permits allowlisted domains (fail-closed otherwise).
+            - { name: HTTP_PROXY,  value: "http://GATEWAY_IP:8888" }
+            - { name: HTTPS_PROXY, value: "http://GATEWAY_IP:8888" }
+            - { name: http_proxy,  value: "http://GATEWAY_IP:8888" }
+            - { name: https_proxy, value: "http://GATEWAY_IP:8888" }
+            - { name: NO_PROXY,  value: "localhost,127.0.0.1,.svc,.cluster.local,10.0.0.0/8,172.16.0.0/12" }
+            - { name: no_proxy,  value: "localhost,127.0.0.1,.svc,.cluster.local,10.0.0.0/8,172.16.0.0/12" }
+            # Anthropic auth is interactive OAuth (`claude /login`) so it works with
+            # enterprise/subscription accounts. The model API + auth go to Anthropic
+            # directly through the egress proxy (api.anthropic.com / claude.ai /
+            # platform.claude.com are allowlisted). The OAuth token persists in the
+            # pod's /data/home/.claude — egress-lock prevents exfil; it's revocable.
+            # NB: do NOT set ANTHROPIC_API_KEY here, or Claude Code skips OAuth.
+            # Kill telemetry, error reporting (sentry), auto-update and feedback —
+            # so those domains never need allowlisting and there's less egress.
+            - { name: CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, value: "1" }
           resources:
             # No CPU limit on purpose: a CPU limit means CFS throttling, which on a
             # 1-core cap caused ~2s keystroke lag while language servers indexed big
@@ -119,6 +104,7 @@ spec:
         - name: ttyd
           image: scottyjoe9/code-server:3412923
           command: [/usr/local/bin/start-ttyd.sh]
+          securityContext: *hardened
           ports:
             - { containerPort: 7681 }
           env: *claudeenv
@@ -133,7 +119,6 @@ spec:
         - { name: git-config,       configMap: { name: git-config, items: [{ key: gitconfig, path: gitconfig }] } }
         - { name: claude-config-src, configMap: { name: claude-config } }
         - { name: work-repos,       configMap: { name: work-repos } }
-        - { name: caddy-config,     configMap: { name: git-proxy-caddy } }
         - { name: shell-config,     configMap: { name: shell-config } }
         # notes via PVC (not a hostPath volume) so the pod is baseline-PSA
         # compliant; the hostPath lives on the PV (see base/pvcs.yaml).

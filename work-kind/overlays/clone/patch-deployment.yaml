@@ -27,9 +27,10 @@ spec:
               set -e
               bash /etc/shell-config/common-init.sh
 
-              # Wait for the git-proxy sidecar to be listening.
+              # Wait for the gateway's git-proxy to be reachable (GATEWAY_IP is
+              # injected by up.sh; the gateway lives outside the cluster).
               for i in $(seq 1 30); do
-                if curl -sf -o /dev/null "http://localhost:8088/"; then break; fi
+                if curl -sf -o /dev/null "http://GATEWAY_IP:8088/"; then break; fi
                 echo "waiting for git-proxy ($i)…"; sleep 1
               done
 

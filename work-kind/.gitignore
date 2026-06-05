@@ -1,3 +1,4 @@
 .env
 kind-cluster.yaml
+kind-cluster-*.yaml
 .DS_Store

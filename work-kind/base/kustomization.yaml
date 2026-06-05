@@ -4,14 +4,13 @@ kind: Kustomization
 # Common base for both modes. Not applied directly — pick an overlay:
 #   kubectl apply -k overlays/mount   (default; host repos bind-mounted)
 #   kubectl apply -k overlays/clone   (ephemeral; repos cloned each boot)
-# Secrets are created out-of-band by setup-secrets.sh (from 1Password), not
-# committed. networkpolicy.yaml (top level) is optional/opt-in.
+# Credentials (GitHub PAT + Anthropic key) live in the out-of-cluster gateway
+# container (up.sh reads them from 1Password), never in the cluster.
 resources:
   - namespace.yaml
   - rbac.yaml
   - pvcs.yaml
   - configmaps.yaml
-  - git-proxy.yaml
   - services.yaml
   - deployment.yaml
 

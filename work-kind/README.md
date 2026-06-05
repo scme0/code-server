@@ -1,27 +1,59 @@
 # Work sandbox (code-server on local kind)
 
 An isolated, local Kubernetes (kind) sandbox running code-server + a mobile
-terminal + Claude Code, for **work** development. Designed around a few
-sandboxing principles: the agent runs in a container, holds **no privileged
-credentials**, and reaches GitHub only through a token-injecting proxy it can't
-read.
+terminal + Claude Code, for **work** development. Designed around a strong
+sandboxing principle: assume the agent could be compromised, so it holds **no
+credentials** and has **exactly one network path out** — a boundary gateway it
+can't bypass.
 
 ## How it's isolated
 
-- **No GitHub token in the agent's container.** A `git-proxy` sidecar (Caddy)
-  holds your scoped PAT and injects auth; git is rewritten to talk to
-  `localhost:8088`. Claude never sees the token.
+- **Single boundary gateway.** A small Docker container (`cs-<name>-gateway`),
+  *outside* the cluster, is the only way in or out. The kind node sits on a
+  no-NAT docker network and routes all egress through the gateway, which:
+  - **allowlists egress** — `tinyproxy` permits only listed domains; everything
+    else is refused (and logged: `docker logs -f cs-<name>-gateway`).
+  - **filters DNS** — `dnsmasq` resolves only allowlisted names and sinkholes the
+    rest, so DNS tunnelling is dead.
+  - **injects the GitHub credential** — Caddy holds your scoped GitHub PAT (git is
+    rewritten to the gateway), so the **token is never in the agent's container or
+    the cluster**. Anthropic auth is interactive OAuth (`claude /login`) so it works
+    with enterprise/subscription accounts; that token does live in the pod's state,
+    but the egress lock prevents exfiltrating it and it's revocable.
+  - **fails closed** — the gateway doesn't forward, so anything not using the
+    proxy simply can't reach the internet. `k8s-run` build pods inherit the proxy,
+    so they're allowlisted too (the usual bypass is closed).
 - **Workspace is mode-dependent** (see [Workspace modes](#workspace-modes)): either
   your host repos bind-mounted RW (`mount`), or an ephemeral volume reset to
   `origin` each boot (`clone`).
 - **Scoped k8s access.** The pod's ServiceAccount can only create/inspect/delete
-  pods in its own namespace (for `k8s-run`), nothing else.
-- **baseline PodSecurity** namespace; no privileged/raw-hostPath pods.
-- Local-only: services published by kind on `127.0.0.1` only (NodePort +
-  extraPortMappings), never on the LAN.
+  pods in its own namespace (for `k8s-run`), nothing else — and there are no
+  credential secrets in that namespace to steal.
+- **baseline PodSecurity** namespace; no privileged/raw-hostPath pods. Agent
+  containers drop all caps + run `seccomp:RuntimeDefault`.
+- Local-only: ports published by kind on `127.0.0.1` only, never on the LAN.
 
 > Not org-approved by itself — even hardened, get R&D sign-off before treating it
-> as policy-compliant for real work.
+> as policy-compliant for real work. A determined compromised agent can still
+> dribble small data out through an *allowlisted* domain; the gateway kills bulk
+> exfil + DNS tunnelling + credential theft, not every covert channel.
+
+## Multiple instances
+
+Run several sandboxes side by side with `--name` (default `work`). Each instance
+is a fully separate cluster + gateway + state dir + docker networks + host ports,
+so they never collide:
+
+```bash
+./up.sh                  # the default "work" instance (ports 4444/7681)
+./up.sh --name test      # a second instance, own gateway/state, derived ports
+./down.sh --name test    # tear down just that one
+```
+
+`work` keeps the original config (cluster `code-server-work`, ports 4444/7681,
+state `~/.code-server-work/state`). Other names derive a unique subnet + ports
+automatically (override with `VSCODE_PORT`/`TTYD_PORT`). Tip: when testing changes
+to this setup, use a fresh `--name` so your running instance is never touched.
 
 ## Workspace modes
 
@@ -77,8 +109,15 @@ Store it in 1Password and point `OP_GH_PAT_REF` at it.
 ./up.sh                 # uses the image for the CURRENT git commit (CI tags by SHA)
 ./up.sh --latest        # use the `latest` image (e.g. while HEAD is still building)
 ./up.sh --tag <tag>     # use a specific image tag
-./down.sh               # delete the cluster + all state
+./up.sh --name test     # a separate instance (see Multiple instances)
+./up.sh --rebuild-gateway   # rebuild + recreate the gateway (e.g. after changing creds)
+./down.sh               # delete the cluster + gateway + networks (state is kept)
+./down.sh --purge-state # …and also delete the persisted state dir
 ```
+
+`up.sh` builds the gateway image locally (no registry/CI) and reads your GitHub +
+Anthropic credentials from 1Password straight into the gateway container — they
+never enter the cluster.
 
 The image tag defaults to the current commit's short SHA (precedence:
 `--tag` > `IMAGE_TAG` env > git SHA). Commit + push so CI builds that SHA before
@@ -93,12 +132,16 @@ kind publishes the ports natively on `127.0.0.1` (no `kubectl port-forward`):
 First boot pulls the image (and in `clone` mode, clones the repos) — give it a few
 minutes.
 
-After a host reboot the node container is stopped but not gone; just restart it
-(no need to re-run `up.sh`) — ports come back with it:
+After a host reboot the containers are stopped but not gone; restart both the
+gateway and the node (no need to re-run `up.sh`) — ports come back with them:
 
 ```bash
-docker start code-server-work-control-plane
+docker start cs-work-gateway code-server-work-control-plane
 ```
+
+> If egress breaks after a reboot, the node's route/DNS wiring may not have
+> persisted — re-run `./up.sh` (it re-applies the wiring without recreating the
+> cluster).
 
 ## Customise
 
@@ -108,8 +151,10 @@ docker start code-server-work-control-plane
   `base/configmaps.yaml`.
 - **Repos (mount mode):** just point `REPOS_DIR` at the host dir holding them.
 - **Image version:** bump `images[].newTag` in `base/kustomization.yaml`.
-- **Claude auth:** set `OP_ANTHROPIC_REF`, or run `claude /login` in the terminal
-  (persists on the config PVC across restarts).
+- **Claude auth:** run `claude /login` in the terminal (OAuth — works with
+  enterprise/subscription accounts). Open the printed URL in your own browser,
+  authorise, paste the code back. The token persists in the state dir across
+  restarts, so it's a one-time step per instance.
 
 ## Shell / dotfiles
 
@@ -148,8 +193,9 @@ Notes (`NOTES_DIR`, optional): when set, mounted at `/mnt/notes` and symlinked t
 ## Persistence
 
 `/data` (the container's home + Claude config + code-server state) is host-mounted
-to `STATE_DIR` (default `~/.code-server-work/state`) — a **dedicated, initially
-empty** dir, **not** your real `~`. So it **survives `down.sh`/recreate**: your
+to `STATE_DIR` (default `~/.code-server-<name>/state`, e.g. `~/.code-server-work/state`)
+— a **dedicated, initially empty**, per-instance dir, **not** your real `~`. So it
+**survives `down.sh`/recreate** (use `down.sh --purge-state` to wipe it): your
 Claude login, memories and history persist across teardowns.
 
 - Claude config defaults to `~/.claude` (=`/data/home/.claude`). Dotfiles aliases
@@ -167,20 +213,46 @@ Claude login, memories and history persist across teardowns.
 ## Layout
 
 ```
-base/                 common manifests (ns, rbac, services, git-proxy, configmaps,
+gateway/              boundary gateway image (Caddy git/anthropic proxy, tinyproxy
+                      egress allowlist, dnsmasq DNS filter); built locally by up.sh
+base/                 common manifests (ns, rbac, services, configmaps,
                       deployment skeleton, shared PVCs)
 overlays/mount/       default: host repos bind-mount, light init
 overlays/clone/       ephemeral workspace + reset-on-boot clone init
-kind-cluster.yaml.tmpl  rendered by up.sh (notes + optional repos/dotfiles mounts)
-up.sh / down.sh / setup-secrets.sh
+kind-cluster.yaml.tmpl  rendered by up.sh (ports + notes/repos/dotfiles mounts)
+up.sh / down.sh       bring up / tear down an instance (creds → gateway, not cluster)
 ```
 
-## Network egress control (optional, advanced)
+## Network egress control
 
-`networkpolicy.yaml` is **not** applied by default: kind's default CNI (kindnet)
-doesn't enforce NetworkPolicy. The git-proxy sidecar is the real GitHub control.
-For enforced egress allowlisting you'd run kind with a policy CNI (Calico) and,
-for FQDN/L7 rules, Cilium. Until then this is defence-in-depth/intent only.
+Egress is allowlisted **by default** via the boundary gateway (no CNI swap, no
+NetworkPolicy needed — `networkpolicy.yaml` is now redundant). The baked defaults
+(`gateway/allowlist.default`) cover github, dockerhub, npm/pypi/go, debian,
+anthropic, open-vsx and stackoverflow. To allow more:
+
+```bash
+# .env
+EGRESS_ALLOW="octopus.com mycompany.example.com"
+```
+
+Re-run `./up.sh --name <instance>` (or just edit
+`$STATE_DIR/gateway/allowlist`) — the gateway **live-reloads in ≤10s, with no
+pod restart**, so your session is undisturbed. Watch what egresses:
+
+```bash
+docker logs -f cs-<name>-gateway      # tinyproxy + dnsmasq decisions
+```
+
+Each domain matches itself and its subdomains, anchored (so `evil-github.com`
+won't match `github.com`). CONNECT is limited to ports 443/80.
+
+### How the enforcement works (and its limits)
+The kind node is on a no-NAT docker network whose only route out is the gateway,
+and the gateway doesn't IP-forward — so anything that ignores the proxy can't
+reach the internet at all (fail-closed). This kills bulk exfil, DNS tunnelling,
+and the `k8s-run` build-pod bypass, and keeps both credentials out of the agent.
+It does **not** stop a compromised agent dribbling small data out through an
+*allowlisted* domain — keep the allowlist to trusted infra.
 
 ## Known rough edges
 

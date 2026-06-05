@@ -1,0 +1,18 @@
+# Gateway Caddy: credential-injecting egress proxies for git + Anthropic.
+# (Ingress to code-server/ttyd is published directly by the kind node, not here.)
+{
+    admin off
+    auto_https off
+}
+
+# --- egress cred proxy: GitHub. Token injected here; the agent never sees it.
+# git is rewritten (insteadOf) to http://<gw>:8088/. Moved from base/git-proxy.yaml.
+:8088 {
+    reverse_proxy https://github.com {
+        header_up Host github.com
+        header_up Authorization "Basic {$GH_AUTH_B64}"
+    }
+}
+
+# Anthropic is NOT proxied here: Claude Code authenticates via interactive OAuth
+# (`claude /login`) and talks to Anthropic directly through the egress allowlist.

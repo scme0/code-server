@@ -1,6 +1,6 @@
-# Global git config for the sandbox: rewrite all GitHub URLs to the localhost
-# git-proxy sidecar, so no credential ever lives in Claude's container.
-# Referenced via GIT_CONFIG_GLOBAL (see deployment.yaml).
+# Global git config for the sandbox: rewrite all GitHub URLs to the boundary
+# gateway's git-proxy (GATEWAY_IP injected by up.sh), so no credential ever lives
+# in Claude's container. Referenced via GIT_CONFIG_GLOBAL (see deployment.yaml).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -8,9 +8,9 @@ metadata:
   namespace: code-server-work
 data:
   gitconfig: |
-    [url "http://localhost:8088/"]
+    [url "http://GATEWAY_IP:8088/"]
         insteadOf = https://github.com/
-    [url "http://localhost:8088/"]
+    [url "http://GATEWAY_IP:8088/"]
         insteadOf = git@github.com:
     [safe]
         directory = *

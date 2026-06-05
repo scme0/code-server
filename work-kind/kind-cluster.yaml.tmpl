@@ -2,7 +2,7 @@
 # Single-node kind cluster for the work sandbox.
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
-name: code-server-work
+name: ${CLUSTER_NAME}
 nodes:
   - role: control-plane
     # Pin the node image for reproducibility across the team. Adjust the tag to
@@ -14,11 +14,11 @@ nodes:
     # nodePort). Bound to 127.0.0.1 only: never exposed to the LAN.
     extraPortMappings:
       - containerPort: 30444      # code-server NodePort
-        hostPort: 4444
+        hostPort: ${VSCODE_PORT}
         listenAddress: "127.0.0.1"
         protocol: TCP
       - containerPort: 30681      # ttyd NodePort
-        hostPort: 7681
+        hostPort: ${TTYD_PORT}
         listenAddress: "127.0.0.1"
         protocol: TCP
     extraMounts:

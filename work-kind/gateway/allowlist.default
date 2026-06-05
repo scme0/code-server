@@ -1,0 +1,51 @@
+# Default egress allowlist. One domain per line; matches the domain and any
+# subdomain. `#` comments and blank lines ignored. up.sh unions this with
+# EGRESS_ALLOW from .env and writes the result to $STATE_DIR/gateway/allowlist
+# (bind-mounted here). Edit + re-run up.sh → live reload, no pod restart.
+
+# --- GitHub (git over the :8088 cred proxy still resolves these directly) ---
+github.com
+codeload.github.com
+objects.githubusercontent.com
+release-assets.githubusercontent.com
+raw.githubusercontent.com
+
+# --- Anthropic / Claude Code (authoritative minimal set) ---
+# Claude Code authenticates via OAuth (`claude /login`) and reaches Anthropic
+# directly through this egress proxy: api.anthropic.com (model API + WebFetch
+# preflight), claude.ai + platform.claude.com (OAuth login/refresh).
+# Telemetry/sentry/auto-update are OFF via CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+# (deployment.yaml), so statsig/sentry aren't needed. (raw.githubusercontent.com
+# is already allowed above — changelog/release feed.)
+api.anthropic.com
+platform.claude.com
+claude.ai
+
+# --- container registries (image pulls) ---
+# Docker Hub serves manifests from registry-1.docker.io but layer blobs redirect
+# to a CDN that shifts (CloudFront / Cloudflare / R2). If a pull fails with
+# "Filtered" on a *.docker.com or r2 host, add it here.
+docker.io
+registry-1.docker.io
+auth.docker.io
+production.cloudfront.docker.com
+production.cloudflare.docker.com
+ghcr.io
+pkg-containers.githubusercontent.com
+
+# --- language / package ecosystems ---
+registry.npmjs.org
+pypi.org
+files.pythonhosted.org
+proxy.golang.org
+sum.golang.org
+
+# --- OS packages (Debian base images in build pods) ---
+deb.debian.org
+security.debian.org
+
+# --- code-server extensions (Open VSX, not the MS marketplace) ---
+open-vsx.org
+
+# --- docs / help ---
+stackoverflow.com

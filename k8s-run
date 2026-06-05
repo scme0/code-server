@@ -82,6 +82,8 @@ POD_JSON=$(jq -n \
   --arg pvc     "$PVC" \
   --arg ishort  "$IMAGE_SHORT" \
   --arg dir     "$DIR_LABEL" \
+  --arg httpproxy "${HTTP_PROXY:-}" \
+  --arg noproxy   "${NO_PROXY:-}" \
   '{
     apiVersion: "v1",
     kind: "Pod",
@@ -111,6 +113,13 @@ POD_JSON=$(jq -n \
         image: $image,
         workingDir: $workdir,
         command: ["/bin/sh", "-c", $cmd],
+        # Inherit the gateway egress proxy so build pods are allowlisted too
+        # (fail-closed: with no proxy set they simply cannot reach the internet).
+        env: ([
+          {name: "HTTP_PROXY",  value: $httpproxy}, {name: "HTTPS_PROXY", value: $httpproxy},
+          {name: "http_proxy",  value: $httpproxy}, {name: "https_proxy", value: $httpproxy},
+          {name: "NO_PROXY",    value: $noproxy},   {name: "no_proxy",    value: $noproxy}
+        ] | map(select(.value != ""))),
         securityContext: {
           allowPrivilegeEscalation: false,
           capabilities: {drop: ["ALL"]},
