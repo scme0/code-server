@@ -3,13 +3,36 @@ name: Build and Push
 on:
   push:
     branches: [main]
+    # Only rebuild when something baked into the image (or the build itself)
+    # changes. Edits to allowlist.default, .env examples, READMEs, k8s manifests,
+    # etc. don't ship in the image, so they skip the build (and the pod doesn't
+    # need to cycle onto a new tag). Keep this in sync with the COPY lines in the
+    # Dockerfile build-context stage.
+    paths:
+      - 'Dockerfile'
+      - '.github/workflows/build.yaml'
+      - 'mobile-controller.js'
+      - 'start-ttyd.sh'
+      - 'k8s-run'
+      - 'tmux.conf'
+      - 'zshrc'
+      - 'skills/**'
   workflow_dispatch:
+
+permissions:
+  contents: write   # push the per-build git tag
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Single source of truth for the image tag AND the git tag, so up.sh's
+      # `git describe` resolves to exactly the image this build pushes.
+      - name: Compute short SHA
+        id: vars
+        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - uses: docker/login-action@v3
         with:
@@ -18,20 +41,21 @@ jobs:
 
       - uses: docker/setup-buildx-action@v3
 
-      - uses: docker/metadata-action@v5
-        id: meta
-        with:
-          images: ${{ secrets.DOCKERHUB_USERNAME }}/code-server
-          tags: |
-            type=raw,value=latest
-            type=sha,prefix=,format=short
-
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/code-server:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/code-server:${{ steps.vars.outputs.sha }}
           cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/code-server:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/code-server:buildcache,mode=max
+
+      # Tag the built commit with the short SHA used as the image tag, so up.sh
+      # can pick it up via `git describe --tags --abbrev=0`. Force-push so manual
+      # workflow_dispatch re-runs of an already-tagged commit don't fail.
+      - name: Tag the built commit
+        run: |
+          git tag -f "${{ steps.vars.outputs.sha }}"
+          git push origin "refs/tags/${{ steps.vars.outputs.sha }}" --force

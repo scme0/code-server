@@ -252,13 +252,17 @@ kubectl create configmap dotfiles-config -n code-server-work \
   --dry-run=client -o yaml | kubectl apply -f -
 
 # --- apply the chosen overlay ------------------------------------------------
-# Image tag precedence: --tag > IMAGE_TAG env > current git short SHA.
+# Image tag precedence: --tag > IMAGE_TAG env > most recent git tag.
+# CI only rebuilds when image deps change (.github/workflows/build.yaml) and tags
+# each built commit with the short SHA it pushed as the image tag. Defaulting to
+# the latest git tag (not HEAD's SHA) means commits that DON'T trigger a rebuild
+# (allowlist/.env/docs edits) keep resolving to the existing image — so committing
+# them + re-running up.sh won't point the pod at a tag that was never built.
+# (Run `git fetch --tags` to pick up tags from CI builds you don't have locally.)
 IMAGE_TAG="${IMAGE_TAG_OVERRIDE:-${IMAGE_TAG:-}}"
 if [[ -z "$IMAGE_TAG" ]]; then
-  IMAGE_TAG=$(git -C "$PWD" rev-parse --short HEAD 2>/dev/null || true)
-  if [[ -n "$IMAGE_TAG" ]] && ! git -C "$PWD" diff --quiet HEAD 2>/dev/null; then
-    echo "   ⚠ uncommitted changes — image:$IMAGE_TAG won't include them (commit + push, or pass --tag)"
-  fi
+  IMAGE_TAG=$(git -C "$PWD" describe --tags --abbrev=0 2>/dev/null || true)
+  [[ -z "$IMAGE_TAG" ]] && echo "   ⚠ no git tags found — falling back to :latest (let CI tag a build, or 'git fetch --tags')"
 fi
 [[ -z "$IMAGE_TAG" ]] && IMAGE_TAG="latest"
 echo "==> Image: scottyjoe9/code-server:$IMAGE_TAG"
