@@ -1,0 +1,12 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.3",
+  "base_commit_sha": "e8a96946a64fc9f067abb535bcf2294cc10f2046",
+  "prompts": {},
+  "humans": {
+    "h_6bf39a942f1ef7": {
+      "author": "scme0 <scott.merchant@octopus.com>"
+    }
+  }
+}
