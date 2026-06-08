@@ -235,9 +235,12 @@ anthropic, open-vsx and stackoverflow. To allow more:
 EGRESS_ALLOW="octopus.com mycompany.example.com"
 ```
 
-Re-run `./up.sh --name <instance>` (or just edit
-`$STATE_DIR/gateway/allowlist`) — the gateway **live-reloads in ≤10s, with no
-pod restart**, so your session is undisturbed. Watch what egresses:
+Re-run `./up.sh --name <instance>` (or edit the live allowlist directly — it sits
+in a `gateway/` dir **alongside** `$STATE_DIR`, e.g.
+`~/.code-server-<name>/gateway/allowlist`, kept **outside** `$STATE_DIR` on purpose
+so the agent pod can't reach it and rewrite its own egress policy) — the gateway
+**live-reloads in ≤10s, with no pod restart**, so your session is undisturbed.
+Watch what egresses:
 
 ```bash
 docker logs -f cs-<name>-gateway      # tinyproxy + dnsmasq decisions

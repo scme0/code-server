@@ -160,8 +160,17 @@ GH_AUTH_B64="$(printf 'x-access-token:%s' "$PAT" | base64 | tr -d '\n')"
 # is read or injected here. The model API just egresses through the allowlist.
 
 # --- egress allowlist (defaults ∪ EGRESS_ALLOW), bind-mounted into the gateway -
-GW_STATE="$STATE_DIR/gateway"; mkdir -p "$GW_STATE"
+# SECURITY: this MUST live outside $STATE_DIR. $STATE_DIR is bind-mounted RW into
+# the agent pod (as /data), so anything under it is agent-writable — and this file
+# is the gateway's egress policy *over* the agent. Under $STATE_DIR, a compromised
+# agent could append its own exfil host and the gateway would live-reload it (≤10s),
+# bypassing the one boundary it's not supposed to cross. The kind node mounts only
+# $STATE_DIR, so a sibling dir is invisible to the pod.
+GW_STATE="$(dirname "$STATE_DIR")/gateway"; mkdir -p "$GW_STATE"
 ALLOWLIST_FILE="$GW_STATE/allowlist"
+# migrate away the old agent-writable copy if a prior up.sh created it under STATE_DIR
+rm -f "$STATE_DIR/gateway/allowlist" 2>/dev/null || true
+rmdir "$STATE_DIR/gateway" 2>/dev/null || true
 {
   cat gateway/allowlist.default
   if [[ -n "${EGRESS_ALLOW:-}" ]]; then
