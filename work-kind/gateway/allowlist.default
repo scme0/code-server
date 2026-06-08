@@ -47,5 +47,14 @@ security.debian.org
 # --- code-server extensions (Open VSX, not the MS marketplace) ---
 open-vsx.org
 
+# --- claude.ai MCP connectors (OAuth + tool calls) ---
+# Remote MCP servers Claude Code connects to. Auth is OAuth: the authorize step
+# happens in the user's browser (direct, not via this proxy), but the metadata
+# fetch + token exchange + all tool calls egress from the pod through here, so
+# the provider domains must be allowed. Apex covers mcp.*/auth.*/api.* subdomains.
+linear.app
+slack.com
+atlassian.com
+
 # --- docs / help ---
 stackoverflow.com
