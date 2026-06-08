@@ -14,6 +14,10 @@ UPSTREAM_DNS="${UPSTREAM_DNS:-1.1.1.1}"
 ALLOWLIST="${ALLOWLIST:-/etc/gateway/allowlist}"
 FILTER=/etc/gateway/tinyproxy.filter
 DNSLIVE=/etc/gateway/dnsmasq.live
+# Opt-in raw-TCP relays to the Docker host (e.g. SQL Server on 1433 for the
+# integration tests). Space/comma list of ports. Empty = no host access at all.
+HOST_RELAY_PORTS="${HOST_RELAY_PORTS:-}"
+HOST_RELAY_TARGET="${HOST_RELAY_TARGET:-host.docker.internal}"
 
 # Seed the allowlist from the baked default if no host file is bind-mounted.
 [ -f "$ALLOWLIST" ] || cp /etc/gateway/allowlist.default "$ALLOWLIST"
@@ -44,6 +48,13 @@ regen() {
     printf '(^|\\.)%s$\n' "$esc" >> "$FILTER"
     echo "server=/${d}/${UPSTREAM_DNS}" >> "$DNSLIVE"
   done < "$ALLOWLIST"
+  # Host relay (opt-in): resolve host.docker.internal to THIS gateway so the raw-TCP
+  # relay sockets below catch it; the gateway re-originates to the real host. Without
+  # a relay we leave it sinkholed (dnsmasq matches the most specific domain first, so
+  # this wins over the catch-all).
+  if [ -n "$HOST_RELAY_PORTS" ]; then
+    echo "address=/${HOST_RELAY_TARGET}/${GW_INTERNAL_IP}" >> "$DNSLIVE"
+  fi
   echo "address=/#/0.0.0.0" >> "$DNSLIVE"   # sinkhole everything not listed
 }
 regen
@@ -54,9 +65,25 @@ start_dnsmasq
 tinyproxy -d -c /etc/gateway/tinyproxy.conf & TINY_PID=$!
 caddy run --config /etc/caddy/Caddyfile --adapter caddyfile & CADDY_PID=$!
 
+# --- host TCP relays (opt-in: HOST_RELAY_PORTS) -------------------------------
+# Narrow, port-scoped holes to a service on the Docker host (e.g. SQL Server on
+# 1433 for the integration tests). Raw TCP, so it does NOT pass through tinyproxy;
+# the gateway is still the only path out (the node has no egress of its own) and
+# these listeners are the only sockets that let those packets leave. We bind the
+# INTERNAL ip only (not the egress side) and re-originate to the host via the
+# gateway's own /etc/hosts entry for host.docker.internal (host-gateway). dnsmasq
+# (regen above) points the pods' host.docker.internal lookups here.
+RELAY_PIDS=""
+for p in $(printf '%s' "$HOST_RELAY_PORTS" | tr ',' ' '); do
+  [ -z "$p" ] && continue
+  socat "TCP-LISTEN:${p},bind=${GW_INTERNAL_IP},fork,reuseaddr" "TCP:${HOST_RELAY_TARGET}:${p}" &
+  RELAY_PIDS="$RELAY_PIDS $!"
+  echo "==> host relay: ${GW_INTERNAL_IP}:${p} -> ${HOST_RELAY_TARGET}:${p}"
+done
+
 echo "==> gateway up: tinyproxy:8888 dnsmasq:53 caddy(ingress 4444/7681, git 8088, anthropic 8443) ip=${GW_INTERNAL_IP}"
 
-cleanup() { kill "$DNSMASQ_PID" "$TINY_PID" "$CADDY_PID" 2>/dev/null || true; }
+cleanup() { kill "$DNSMASQ_PID" "$TINY_PID" "$CADDY_PID" $RELAY_PIDS 2>/dev/null || true; }
 trap cleanup TERM INT
 
 # --- watch the allowlist; live-reload on change (no restart) ------------------

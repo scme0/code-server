@@ -25,11 +25,18 @@ installed**. Two problems follow, and this skill solves both.
 2. **`localhost` is the pod, not the host.** The tests default
    `SQL_IntegrationTest_Instance` to `localhost`/`(local)`. Inside a pod that
    resolves to the pod itself, so the connection fails. Point it at
-   `host.docker.internal`, which resolves via cluster DNS (`0.250.250.254`,
-   port `1433`) and is reachable from freshly spawned `k8s-run` pods too.
+   `host.docker.internal` — cluster DNS (gateway dnsmasq) resolves that to the
+   boundary gateway, which runs a raw-TCP relay re-originating port `1433` to the
+   real host. Works from freshly spawned `k8s-run` pods too.
 
    This is **not** a database bind/firewall issue — the DB already accepts
    non-localhost traffic; only the connection target needs changing.
+
+   **Requires `HOST_RELAY_PORTS=1433` in `work-kind/.env`** (then re-run
+   `./up.sh`). The egress boundary blocks all non-allowlisted traffic and SQL is
+   raw TCP (not HTTP, so the egress proxy can't carry it); the host relay is the
+   one sanctioned path. Without it the connection fails with a timeout — that is
+   the boundary working, not a DB problem.
 
 ## Run a targeted test
 

@@ -4,10 +4,11 @@
 #   - tinyproxy: egress forward proxy with a domain allowlist
 #   - dnsmasq:   resolves allowlisted domains, sinkholes everything else
 #   - iptables:  ip_forward=0 / FORWARD DROP so nothing transits (fail-closed)
+#   - socat:     opt-in, port-scoped raw-TCP relays to the Docker host (HOST_RELAY_PORTS)
 # Based on the same Caddy image the old git-proxy used; add the rest via apk.
 FROM caddy:2.10-alpine
 
-RUN apk add --no-cache bash tinyproxy dnsmasq iptables
+RUN apk add --no-cache bash tinyproxy dnsmasq iptables socat
 
 # Static config; the per-domain bits (tinyproxy filter, dnsmasq servers) are
 # generated at runtime from the allowlist by entrypoint.sh.

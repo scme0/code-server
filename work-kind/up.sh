@@ -201,19 +201,26 @@ echo "==> Building gateway image ($GW_IMAGE)"
 docker build -q -t "$GW_IMAGE" gateway >/dev/null
 
 gw_running() { [[ "$(docker inspect -f '{{.State.Running}}' "$GW_NAME" 2>/dev/null)" == "true" ]]; }
-if [[ "$REBUILD_GATEWAY" == 1 ]] || ! gw_running; then
+# Host-relay ports are a start-time env (not live-reloadable like the allowlist), so
+# recreate the gateway if the requested set differs from the running container's.
+gw_relay_now() { docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$GW_NAME" 2>/dev/null | sed -n 's/^HOST_RELAY_PORTS=//p'; }
+if [[ "$REBUILD_GATEWAY" == 1 ]] || ! gw_running || [[ "$(gw_relay_now)" != "${HOST_RELAY_PORTS:-}" ]]; then
   docker rm -f "$GW_NAME" >/dev/null 2>&1 || true
   # Start ON the internal net with the static IP (so dnsmasq can bind it at boot),
   # then attach the egress net for actual internet access.
+  # host.docker.internal:host-gateway lets the gateway reach host services for the
+  # opt-in HOST_RELAY_PORTS relays (auto on Docker Desktop, needed on plain Linux).
   docker run -d --name "$GW_NAME" --restart unless-stopped \
     --network "$NET_INTERNAL" --ip "$GW_IP" \
     --cap-add NET_ADMIN --sysctl net.ipv4.ip_forward=0 \
+    --add-host host.docker.internal:host-gateway \
     -e GW_INTERNAL_IP="$GW_IP" \
     -e GH_AUTH_B64="$GH_AUTH_B64" \
+    -e HOST_RELAY_PORTS="${HOST_RELAY_PORTS:-}" \
     -v "$ALLOWLIST_FILE":/etc/gateway/allowlist \
     "$GW_IMAGE" >/dev/null
   docker network connect "$NET_EGRESS" "$GW_NAME"
-  echo "==> Gateway $GW_NAME up at $GW_IP (egress allowlist + DNS filter + git/anthropic proxy)"
+  echo "==> Gateway $GW_NAME up at $GW_IP (egress allowlist + DNS filter + git/anthropic proxy${HOST_RELAY_PORTS:+ + host relay $HOST_RELAY_PORTS})"
 else
   echo "==> Gateway $GW_NAME already running — allowlist refreshed in place (live reload ≤10s)"
 fi
