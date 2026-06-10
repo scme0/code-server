@@ -125,6 +125,35 @@ else
   else
     skip "egress tests" "curl not found in the pod"
   fi
+  # host-bridge bypass: the docker bridge .1 (172.30.$OCTET.1) IS the host, on a
+  # CONNECTED route — so masquerade=false + the default-route-via-gateway do NOT
+  # cover it. Without the node FORWARD drop (up.sh) a pod reaches the host on ALL
+  # ports, sidestepping the HOST_RELAY_PORTS allowlist. Probe a non-relay port:
+  # a RST (refused) or a connect both mean the host is reachable → FAIL; only a
+  # timeout (silently dropped) is the boundary holding → PASS. curl can't tell
+  # those apart, so use python3's socket errors. exit 0 = blocked, 1 = reachable.
+  HOST_BRIDGE_IP="172.30.${OCTET}.1"
+  if $K -n "$NS" exec "$POD" -c code-server -- sh -c 'command -v python3 >/dev/null' 2>/dev/null; then
+    read -r -d '' PYSRC <<PY || true
+import socket, sys
+s = socket.socket(); s.settimeout(4)
+try:
+    s.connect(("$HOST_BRIDGE_IP", 19999)); sys.exit(1)   # connected → reachable
+except ConnectionRefusedError:
+    sys.exit(1)                                          # RST → host reachable, no listener
+except Exception:
+    sys.exit(0)                                          # timeout/unreachable → blocked
+finally:
+    s.close()
+PY
+    if printf '%s' "$PYSRC" | $K -n "$NS" exec -i "$POD" -c code-server -- python3 - >/dev/null 2>&1; then
+      ok "host-bridge bypass BLOCKED (pod can't reach host $HOST_BRIDGE_IP on a non-relay port)"
+    else
+      no "host-bridge bypass BLOCKED" "pod reached host $HOST_BRIDGE_IP directly — node FORWARD drop missing; re-run up.sh"
+    fi
+  else
+    skip "host-bridge bypass check" "python3 not in pod"
+  fi
 fi
 
 # --- summary -----------------------------------------------------------------

@@ -85,6 +85,28 @@ if have curl; then
   else ok "direct egress fail-closed (proxy bypass → dead)"; fi
 else skip "egress rule checks" "curl not found"; fi
 
+# host-bridge bypass: the docker bridge .1 (same /24 as the gateway, here the .2)
+# IS the host on a CONNECTED route, so the gateway/route wiring doesn't cover it.
+# Without the node FORWARD drop a pod reaches the host on ALL ports, bypassing the
+# HOST_RELAY_PORTS allowlist. Reachable (RST or connect) = FAIL; timeout = blocked.
+if have python3 && [[ "$GW_HOST" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  HOST_BRIDGE_IP="${GW_HOST%.*}.1"
+  if python3 - "$HOST_BRIDGE_IP" <<'PY' 2>/dev/null
+import socket, sys
+s = socket.socket(); s.settimeout(4)
+try:
+    s.connect((sys.argv[1], 19999)); sys.exit(1)   # connected → reachable
+except ConnectionRefusedError:
+    sys.exit(1)                                     # RST → host reachable, no listener
+except Exception:
+    sys.exit(0)                                     # timeout/unreachable → blocked
+finally:
+    s.close()
+PY
+  then ok "host-bridge bypass blocked (can't reach host $HOST_BRIDGE_IP on a non-relay port)"
+  else no "host-bridge bypass blocked" "reached host $HOST_BRIDGE_IP directly — node FORWARD drop missing (re-run up.sh on the host)"; fi
+else skip "host-bridge bypass check" "python3 missing or gateway IP not numeric"; fi
+
 # --- 4. DNS filtering (dnsmasq sinkhole on the gateway) ---------------------
 section "DNS filter"
 if have getent; then

@@ -267,6 +267,19 @@ docker exec "$NODE" sh -c "ip route del default 2>/dev/null; ip route add defaul
   || echo "   ⚠ could not set node default route (validate manually)"
 docker exec "$NODE" sh -c "printf 'nameserver %s\n' '$GW_IP' > /etc/resolv.conf" 2>/dev/null \
   || echo "   ⚠ could not set node resolv.conf"
+# SECURITY: block pods reaching the host directly via the bridge gateway address
+# (172.30.$OCTET.1 = the Docker bridge = the host). That .1 is a CONNECTED route, so
+# masquerade=false + the default-route-via-gateway above do NOT cover it — a pod could
+# otherwise hit any host port (e.g. host.k3d.internal, or the raw IP) on ALL 65535
+# ports, bypassing the HOST_RELAY_PORTS allowlist that is meant to be the only host
+# access. The sanctioned relay is pod->gateway($GW_IP)->host, which this rule does NOT
+# touch. FORWARD only sees pod-forwarded traffic (src 10.42/16), so the node's own
+# host access (OUTPUT) is unaffected. Runtime rule — re-run up.sh after a reboot.
+HOST_BRIDGE_IP="172.30.${OCTET}.1"
+docker exec "$NODE" sh -c \
+  "iptables -C FORWARD -s 10.42.0.0/16 -d ${HOST_BRIDGE_IP} -j DROP 2>/dev/null \
+   || iptables -I FORWARD 1 -s 10.42.0.0/16 -d ${HOST_BRIDGE_IP} -j DROP" 2>/dev/null \
+  || echo "   ⚠ could not add host-bridge egress block (validate manually)"
 # CoreDNS forwards external names to the node resolv.conf (= the gateway); restart
 # so it picks up the change. Cluster (.svc) names stay internal.
 kubectl -n kube-system rollout restart deploy/coredns >/dev/null 2>&1 || true
@@ -327,8 +340,9 @@ Egress audit log:  docker logs -f $GW_NAME
 In Docker Desktop the gateway + k3d node are grouped under "code-server-${NAME}".
 
 After a host reboot, re-run ./up.sh --name $NAME (idempotent): the node's default
-route + DNS are runtime settings that don't survive a docker restart, so a bare
-'docker start' brings the containers back but NOT their egress wiring.
+route + DNS + host-bridge egress block are runtime settings that don't survive a
+docker restart, so a bare 'docker start' brings the containers back but NOT their
+egress wiring.
 
 Tear down:  ./down.sh --name $NAME
 EOF
