@@ -1,6 +1,6 @@
-# Work sandbox (code-server on local kind)
+# Work sandbox (code-server on local k3s/k3d)
 
-An isolated, local Kubernetes (kind) sandbox running code-server + a mobile
+An isolated, local Kubernetes (k3s, run via k3d) sandbox running code-server + a mobile
 terminal + Claude Code, for **work** development. Designed around a strong
 sandboxing principle: assume the agent could be compromised, so it holds **no
 credentials** and has **exactly one network path out** — a boundary gateway it
@@ -9,7 +9,7 @@ can't bypass.
 ## How it's isolated
 
 - **Single boundary gateway.** A small Docker container (`cs-<name>-gateway`),
-  *outside* the cluster, is the only way in or out. The kind node sits on a
+  *outside* the cluster, is the only way in or out. The k3s node sits on a
   no-NAT docker network and routes all egress through the gateway, which:
   - **allowlists egress** — `tinyproxy` permits only listed domains; everything
     else is refused (and logged: `docker logs -f cs-<name>-gateway`).
@@ -31,7 +31,7 @@ can't bypass.
   credential secrets in that namespace to steal.
 - **baseline PodSecurity** namespace; no privileged/raw-hostPath pods. Agent
   containers drop all caps + run `seccomp:RuntimeDefault`.
-- Local-only: ports published by kind on `127.0.0.1` only, never on the LAN.
+- Local-only: ports published by k3d on `127.0.0.1` only, never on the LAN.
 
 > Not org-approved by itself — even hardened, get R&D sign-off before treating it
 > as policy-compliant for real work. A determined compromised agent can still
@@ -79,7 +79,7 @@ run heavy/test work in disposable `k8s-run` pods (off-host).
 ## Prerequisites (macOS Apple Silicon · Windows WSL2)
 
 - **Docker** running (Docker Desktop on macOS; Docker in your WSL2 distro)
-- **kind**, **kubectl**, **kustomize** (bundled with recent kubectl), **1Password CLI (`op`)**, `envsubst` (gettext), `base64`
+- **k3d** (v5+, provides k3s-in-docker), **kubectl**, **kustomize** (bundled with recent kubectl), **1Password CLI (`op`)**, `envsubst` (gettext), `base64`
 - Signed in to the work 1Password account: `eval $(op signin)`
 - **WSL2:** run everything inside the WSL2 distro; keep `NOTES_DIR` on the WSL2
   filesystem (`/home/...`), not `/mnt/c/...`.
@@ -124,7 +124,7 @@ The image tag defaults to the current commit's short SHA (precedence:
 `up.sh`, or pass `--tag latest` / a known tag. (`base/kustomization.yaml` falls
 back to `latest` for a direct `kubectl apply -k`.)
 
-kind publishes the ports natively on `127.0.0.1` (no `kubectl port-forward`):
+k3d publishes the ports natively on `127.0.0.1` (no `kubectl port-forward`):
 
 - **VS Code** → http://localhost:4444
 - **terminal** → http://localhost:7681
@@ -132,16 +132,19 @@ kind publishes the ports natively on `127.0.0.1` (no `kubectl port-forward`):
 First boot pulls the image (and in `clone` mode, clones the repos) — give it a few
 minutes.
 
-After a host reboot the containers are stopped but not gone; restart both the
-gateway and the node (no need to re-run `up.sh`) — ports come back with them:
+After a host reboot the containers are stopped but not gone. A bare
+`docker start cs-work-gateway k3d-code-server-work-server-0` brings them (and the
+host ports) back — **but not** the node's default-route + DNS wiring, which are
+runtime `docker exec` tweaks that don't survive a restart. So the reliable move is
+to just re-run `up.sh` (idempotent — it re-wires egress without recreating the
+cluster):
 
 ```bash
-docker start cs-work-gateway code-server-work-control-plane
+./up.sh                  # or: ./up.sh --name <instance>
 ```
 
-> If egress breaks after a reboot, the node's route/DNS wiring may not have
-> persisted — re-run `./up.sh` (it re-applies the wiring without recreating the
-> cluster).
+> The containerd image-pull proxy *does* persist (it's `HTTP(S)_PROXY` env baked
+> into the k3d node), so only the route/DNS need re-applying — which `up.sh` does.
 
 ## Customise
 
@@ -219,7 +222,7 @@ base/                 common manifests (ns, rbac, services, configmaps,
                       deployment skeleton, shared PVCs)
 overlays/mount/       default: host repos bind-mount, light init
 overlays/clone/       ephemeral workspace + reset-on-boot clone init
-kind-cluster.yaml.tmpl  rendered by up.sh (ports + notes/repos/dotfiles mounts)
+k3d-cluster.yaml.tmpl   rendered by up.sh (ports + notes/repos/dotfiles mounts)
 up.sh / down.sh       bring up / tear down an instance (creds → gateway, not cluster)
 ```
 
@@ -250,7 +253,7 @@ Each domain matches itself and its subdomains, anchored (so `evil-github.com`
 won't match `github.com`). CONNECT is limited to ports 443/80.
 
 ### How the enforcement works (and its limits)
-The kind node is on a no-NAT docker network whose only route out is the gateway,
+The k3s node is on a no-NAT docker network whose only route out is the gateway,
 and the gateway doesn't IP-forward — so anything that ignores the proxy can't
 reach the internet at all (fail-closed). This kills bulk exfil, DNS tunnelling,
 and the `k8s-run` build-pod bypass, and keeps both credentials out of the agent.
@@ -259,7 +262,7 @@ It does **not** stop a compromised agent dribbling small data out through an
 
 ## Known rough edges
 
-- **Mount/notes perms:** host dirs are shared via kind extraMount → hostPath PV.
+- **Mount/notes perms:** host dirs are shared via k3d volume mount → hostPath PV.
   The container runs as uid 1000; ownership mapping differs across Docker Desktop
   (macOS, virtiofs — usually transparent) vs WSL2 (matches if your WSL uid is 1000).
   Mount mode sets `fsGroupChangePolicy: OnRootMismatch` so kubelet won't mass-chown
@@ -269,4 +272,4 @@ It does **not** stop a compromised agent dribbling small data out through an
 - **git LFS / redirects:** the proxy forwards plain git smart-HTTP to github.com.
   LFS endpoints (different host) won't proxy; use exact `owner/repo` casing with
   `.git` to avoid redirects.
-- Single-node kind, RWO PVCs, `Recreate` strategy → one pod at a time.
+- Single-node k3s, RWO PVCs, `Recreate` strategy → one pod at a time.

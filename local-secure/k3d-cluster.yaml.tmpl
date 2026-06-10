@@ -1,0 +1,93 @@
+# Rendered by up.sh (envsubst) → k3d-cluster-<name>.yaml. Do not edit the rendered file.
+# Single-server k3s cluster, run via k3d (k3s-in-docker). Replaces the old kind
+# config. Same "node = a docker container" model as kind, but:
+#   - k3d can stamp DOCKER labels on the node container (see options.runtime.labels),
+#     so Docker Desktop groups the node + gateway like a compose project — kind can't.
+#   - k3s bakes its system images into the image, so cluster create needs NO egress
+#     (kind pulled them). Only USER images (the code-server image) pull via the gateway.
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  # k3d prefixes container/context names with `k3d-` → node = k3d-${CLUSTER_NAME}-server-0.
+  name: ${CLUSTER_NAME}
+# Pin to match the team's k8s version (mirrors the old kindest/node:v1.33.1).
+# Adjust to a tag your installed k3d supports (see k3s releases).
+image: rancher/k3s:v1.33.1-k3s1
+# Join the no-NAT internal network up.sh created. masquerade is disabled on it, so
+# the node has no direct egress; up.sh sets its default route + DNS to the gateway
+# post-create. (Same boundary as the old kind setup.)
+network: ${NET_INTERNAL}
+# kube-apiserver published to the HOST on 127.0.0.1 ONLY (never the LAN), like kind.
+# Per-instance host port so multiple sandboxes don't collide.
+kubeAPI:
+  hostIP: "127.0.0.1"
+  hostPort: "${API_PORT}"
+# Native host port publishing → survives `docker start` (no kubectl port-forward).
+# Published through k3d's loadbalancer (the `serverlb` container): host
+# 127.0.0.1:<port> → serverlb → server node's NodePort (30444/30681 from
+# base/services.yaml). k3d can only do this `proxy`-type mapping with the LB
+# enabled (mapping straight to server:0 with the LB OFF is rejected by k3d).
+# 127.0.0.1-bound: never on the LAN.
+ports:
+  - port: "127.0.0.1:${VSCODE_PORT}:30444"
+    nodeFilters: [loadbalancer]
+  - port: "127.0.0.1:${TTYD_PORT}:30681"
+    nodeFilters: [loadbalancer]
+volumes:
+  # Persistent sandbox state (/data): Claude auth/memories/history, code-server
+  # state, shell home. ALWAYS on; survives down.sh so login + memories persist.
+  - volume: ${STATE_DIR}:/mnt/state
+    nodeFilters: [server:0]
+  # up.sh injects the optional notes mount, the repos mount(s), and the dotfiles
+  # mount below (each a `- volume:` entry, or empty if disabled).
+${NOTES_MOUNT}
+${REPOS_MOUNT}
+${DOTFILES_MOUNT}
+env:
+  # Route containerd image pulls through the gateway HTTP proxy. k3s inherits these
+  # on its process → its embedded containerd uses them (no systemd drop-in needed,
+  # unlike kind). NO_PROXY keeps cluster/internal traffic direct: k3s pod CIDR
+  # (10.42/16) + service CIDR (10.43/16) fall under 10.0.0.0/8; the node net under
+  # 172.16.0.0/12. The apiserver is on loopback. Registry hosts are NOT excluded —
+  # we WANT pulls to traverse the gateway allowlist.
+  - envVar: "HTTP_PROXY=http://${GW_IP}:8888"
+    nodeFilters: [server:0]
+  - envVar: "HTTPS_PROXY=http://${GW_IP}:8888"
+    nodeFilters: [server:0]
+  - envVar: "NO_PROXY=${NO_PROXY_VAL}"
+    nodeFilters: [server:0]
+options:
+  k3d:
+    # Keep the k3d loadbalancer (serverlb) — required for the port mappings above.
+    # It's a tiny inbound nginx proxy on the cluster network; it gives the node NO
+    # new egress path (egress still only via the gateway), so the boundary holds.
+    disableLoadbalancer: false
+  kubeconfig:
+    # Don't let k3d auto-merge: it bails when KUBECONFIG lists multiple files
+    # ("multiple kubeconfigs specified"). up.sh merges explicitly into a single
+    # target instead (see the kubeconfig step there).
+    updateDefaultKubeconfig: false
+    switchCurrentContext: false
+  k3s:
+    extraArgs:
+      # Drop bundled extras the sandbox doesn't use, keeping it close to kind's bare
+      # cluster. flannel CNI + the kube-router NetworkPolicy controller stay (so
+      # networkpolicy.yaml is now actually enforced if applied — defence in depth).
+      - arg: "--disable=traefik"
+        nodeFilters: [server:*]
+      - arg: "--disable=servicelb"
+        nodeFilters: [server:*]
+  runtime:
+    # DOCKER container labels on the node. Docker Desktop groups by
+    # com.docker.compose.project, so this nests the node under the same group as the
+    # gateway (up.sh stamps the gateway with a matching label) — like a compose
+    # project, without a compose file. This is the thing kind could not do.
+    labels:
+      # project label on BOTH the server node and the loadbalancer so the whole
+      # cluster groups with the gateway. service label distinguishes them in the UI.
+      - label: com.docker.compose.project=code-server-${NAME}
+        nodeFilters: [server:*, loadbalancer]
+      - label: com.docker.compose.service=cluster
+        nodeFilters: [server:*]
+      - label: com.docker.compose.service=loadbalancer
+        nodeFilters: [loadbalancer]

@@ -2,7 +2,7 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 # MOUNT mode (default): your host repos dir (REPOS_DIR in .env) is bind-mounted
-# read-write at /data/workspace via a kind extraMount → hostPath PV+PVC. Repos are
+# read-write at /data/workspace via a k3d volume mount → hostPath PV+PVC. Repos are
 # present instantly (fast boot), edits are live on the host, and the PAT can be
 # read-only (you push from the host). No clone, no reset.
 resources:

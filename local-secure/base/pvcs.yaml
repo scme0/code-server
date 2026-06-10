@@ -5,7 +5,7 @@
 #
 # Sandbox state = all of /data: Claude auth + memories + history (under
 # ~/.claude, ~/.claude-home, ~/.claude-work), code-server state, and the shell
-# home. Host-persisted (STATE_DIR in .env) via kind extraMount → /mnt/state, so it
+# home. Host-persisted (STATE_DIR in .env) via k3d volume mount → /mnt/state, so it
 # SURVIVES down.sh/recreate — you keep your login and memories. A dedicated dir,
 # separate from your real ~/.claude. Capacity is cosmetic for hostPath.
 apiVersion: v1
@@ -34,7 +34,7 @@ spec:
     requests:
       storage: 5Gi
 ---
-# Work notes from the host (kind extraMount → node:/mnt/notes), exposed via a
+# Work notes from the host (k3d volume mount → node:/mnt/notes), exposed via a
 # PV+PVC so the pod mounts a PVC (baseline-PSA allows it) rather than a raw
 # hostPath volume (which baseline forbids). Set NOTES_DIR in .env to your real
 # notes dir; up.sh wires it into the kind mount.
@@ -65,7 +65,7 @@ spec:
       storage: 5Gi
 ---
 # Dotfiles source for DOTFILES_MODE=host|chezmoi: a host dir (DOTFILES_SRC in .env)
-# bind-mounted RO via kind extraMount → node:/mnt/dotfiles-src → this PV/PVC. In
+# bind-mounted RO via k3d volume mount → node:/mnt/dotfiles-src → this PV/PVC. In
 # default|none mode nothing is mounted there (DirectoryOrCreate yields an empty
 # dir) and the init script ignores it. Capacity is cosmetic for hostPath.
 apiVersion: v1

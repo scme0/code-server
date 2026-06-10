@@ -1,11 +1,11 @@
 # OPTIONAL / opt-in. NOT in kustomization.yaml by default.
 #
-# kind's default CNI (kindnet) does NOT enforce NetworkPolicy, so this is a
-# no-op there. It only takes effect if you run kind with a policy-enforcing CNI
-# (Calico/Cilium — see README). Even then, vanilla NetworkPolicy can't do
-# FQDN/L7 allowlists, so true "GitHub + Anthropic only" egress needs Cilium
-# CiliumNetworkPolicy. The real GitHub control here is the git-proxy sidecar
-# (no token in Claude's container); this policy is defence-in-depth/intent.
+# k3s's default flannel CNI ships the kube-router NetworkPolicy controller, so —
+# unlike kind's kindnet, which ignored NetworkPolicy — this IS enforced once
+# applied. Even so, vanilla NetworkPolicy can't do FQDN/L7 allowlists, so true
+# "GitHub + Anthropic only" egress still relies on the boundary gateway, not this.
+# The real GitHub control here is the git-proxy sidecar (no token in Claude's
+# container); this policy is defence-in-depth/intent layered on the gateway.
 #
 # This baseline policy: default-deny ingress; egress limited to DNS, HTTPS/HTTP,
 # and the apiserver (for k8s-run). Apply with: kubectl apply -f networkpolicy.yaml

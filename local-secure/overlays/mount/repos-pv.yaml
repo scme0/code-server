@@ -1,7 +1,7 @@
 # Host repos bind-mount, exposed via a PV+PVC (baseline-PSA forbids a raw
 # hostPath volume in the pod, but a PVC backed by a hostPath PV is allowed).
-# The hostPath /mnt/repos is your REPOS_DIR, wired in by up.sh via the kind
-# extraMount. Capacity is ignored for hostPath; the number is cosmetic.
+# The hostPath /mnt/repos is your REPOS_DIR, wired in by up.sh via the k3d
+# volume mount. Capacity is ignored for hostPath; the number is cosmetic.
 apiVersion: v1
 kind: PersistentVolume
 metadata:

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Tear down a work sandbox instance: the kind cluster, its gateway container,
+# Tear down a work sandbox instance: the k3d (k3s) cluster, its gateway container,
 # and its docker networks. Persistent state ($STATE_DIR) is KEPT by default
 # (your Claude auth/memories survive) — pass --purge-state to delete it too.
 set -euo pipefail
@@ -26,10 +26,13 @@ if [[ "$NAME" == "work" && -n "${STATE_DIR:-}" ]]; then :; else
   STATE_DIR="$HOME/.code-server-${NAME}/state"
 fi
 
-kind delete cluster --name "$CLUSTER" 2>/dev/null || true
+# Delete the cluster first (removes the node container + k3d's image volume) so the
+# network is free to remove. k3d won't touch NET_INTERNAL/NET_EGRESS — those are
+# pre-existing user networks up.sh created — so we remove them explicitly below.
+k3d cluster delete "$CLUSTER" 2>/dev/null || true
 docker rm -f "$GW_NAME" >/dev/null 2>&1 || true
 docker network rm "$NET_INTERNAL" "$NET_EGRESS" >/dev/null 2>&1 || true
-rm -f "kind-cluster-${NAME}.yaml"
+rm -f "k3d-cluster-${NAME}.yaml"
 echo "✅ Torn down instance '$NAME' (cluster + gateway + networks)."
 
 if [[ "$PURGE_STATE" == 1 ]]; then

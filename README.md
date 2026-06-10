@@ -11,7 +11,7 @@ runs in disposable pods via `k8s-run`.
 
 ## Get started
 
-See **[`work-kind/README.md`](work-kind/README.md)** for prerequisites, setup,
+See **[`local-secure/README.md`](local-secure/README.md)** for prerequisites, setup,
 and the two workspace modes (bind-mount your host repos, or ephemeral
 clone-on-boot).
 
@@ -19,7 +19,7 @@ clone-on-boot).
 
 ```
 Dockerfile            the code-server + Claude Code + tooling image
-work-kind/            the kind cluster + Kubernetes manifests + up/down scripts
+local-secure/         the local k3s (k3d) cluster + Kubernetes manifests + up/down scripts
 k8s-run               disposable-pod runner for build/test/analyze
 mobile-controller.js  mobile terminal helper
 ```

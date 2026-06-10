@@ -1,6 +1,7 @@
 # Workspace = source code only, ephemeral in spirit (reset --hard origin every
 # boot by the reset-repos initContainer). On a PVC because k8s-run build pods
-# share it; "standard" is kind's built-in local-path storage class.
+# share it; "local-path" is k3s's built-in (default) local-path storage class.
+# (kind's equivalent was named "standard" — different name, same provisioner.)
 # Named code-server-workspace to match k8s-run's default PVC (portable with home).
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -9,7 +10,7 @@ metadata:
   namespace: code-server-work
 spec:
   accessModes: [ReadWriteOnce]
-  storageClassName: standard
+  storageClassName: local-path
   resources:
     requests:
       storage: 20Gi

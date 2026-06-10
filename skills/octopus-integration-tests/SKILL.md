@@ -32,7 +32,7 @@ installed**. Two problems follow, and this skill solves both.
    This is **not** a database bind/firewall issue — the DB already accepts
    non-localhost traffic; only the connection target needs changing.
 
-   **Requires `HOST_RELAY_PORTS=1433` in `work-kind/.env`** (then re-run
+   **Requires `HOST_RELAY_PORTS=1433` in `local-secure/.env`** (then re-run
    `./up.sh`). The egress boundary blocks all non-allowlisted traffic and SQL is
    raw TCP (not HTTP, so the egress proxy can't carry it); the host relay is the
    one sanctioned path. Without it the connection fails with a timeout — that is

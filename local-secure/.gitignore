@@ -1,4 +1,5 @@
 .env
+k3d-cluster-*.yaml
 kind-cluster.yaml
 kind-cluster-*.yaml
 .DS_Store

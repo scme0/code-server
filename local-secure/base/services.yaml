@@ -1,5 +1,5 @@
-# NodePort service. The fixed nodePorts are published to the host by kind's
-# extraPortMappings (see kind-cluster.yaml.tmpl): host 127.0.0.1:4444 → 30444,
+# NodePort service. The fixed nodePorts are published to the host by k3d's
+# `ports` mapping (see k3d-cluster.yaml.tmpl): host 127.0.0.1:4444 → 30444,
 # 127.0.0.1:7681 → 30681. No kubectl port-forward needed; survives docker start.
 apiVersion: v1
 kind: Service

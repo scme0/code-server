@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Spin up a work sandbox on a local kind cluster, behind a single boundary
+# Spin up a work sandbox on a local k3s cluster (via k3d), behind a single boundary
 # gateway container that ALL traffic flows through (egress allowlist + DNS
 # filtering + GitHub/Anthropic credential injection). Idempotent.
 #
@@ -43,7 +43,7 @@ done
 
 # --- derive per-instance identifiers ----------------------------------------
 CLUSTER="code-server-${NAME}"
-NODE="${CLUSTER}-control-plane"
+NODE="k3d-${CLUSTER}-server-0"   # k3d prefixes node containers with k3d-…-server-N
 NET_INTERNAL="cs-${NAME}-internal"
 NET_EGRESS="cs-${NAME}-egress"
 GW_NAME="cs-${NAME}-gateway"
@@ -51,14 +51,19 @@ GW_IMAGE="cs-gateway:local"
 # "work" keeps the original subnet/ports; other names derive a unique octet+ports
 # from a stable hash so multiple instances don't clash.
 if [[ "$NAME" == "work" ]]; then
-  OCTET=0; VSCODE_PORT="${VSCODE_PORT:-4444}"; TTYD_PORT="${TTYD_PORT:-7681}"
+  OCTET=0; VSCODE_PORT="${VSCODE_PORT:-4444}"; TTYD_PORT="${TTYD_PORT:-7681}"; API_PORT="${API_PORT:-6443}"
 else
   OCTET=$(( $(printf '%s' "$NAME" | cksum | cut -d' ' -f1) % 250 + 1 ))
   VSCODE_PORT="${VSCODE_PORT:-$((4444 + OCTET))}"
   TTYD_PORT="${TTYD_PORT:-$((7681 + OCTET))}"
+  API_PORT="${API_PORT:-$((6443 + OCTET))}"
 fi
 SUBNET="172.30.${OCTET}.0/24"
 GW_IP="172.30.${OCTET}.2"
+# NO_PROXY for the k3s node's HTTP(S)_PROXY (set in the k3d config): keep cluster +
+# internal traffic direct. 10.0.0.0/8 covers k3s pod (10.42/16) + svc (10.43/16)
+# CIDRs; 172.16.0.0/12 covers the node net; the apiserver is on loopback.
+NO_PROXY_VAL="localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,.svc,.cluster.local"
 
 # State dir per instance (so instances never share Claude auth/state). A .env
 # STATE_DIR is honoured only for the default "work" instance (back-compat).
@@ -87,7 +92,7 @@ echo "==> Dotfiles mode: $DOTFILES_MODE"
 
 # --- preflight ---------------------------------------------------------------
 missing=0
-for t in docker kind kubectl op envsubst base64; do
+for t in docker k3d kubectl op envsubst base64; do
   command -v "$t" >/dev/null 2>&1 || { echo "MISSING prerequisite: $t"; missing=1; }
 done
 [[ "$missing" == 1 ]] && { echo "Install the missing tools (see README) and retry."; exit 1; }
@@ -101,7 +106,7 @@ NOTES_MOUNT=""; NOTES_ENABLED=""
 if [[ -n "${NOTES_DIR:-}" ]]; then
   mkdir -p "$NOTES_DIR"
   echo "==> Notes dir: $NOTES_DIR"
-  NOTES_MOUNT=$'      - hostPath: '"$NOTES_DIR"$'\n        containerPath: /mnt/notes'
+  NOTES_MOUNT=$'  - volume: '"$NOTES_DIR"$':/mnt/notes\n    nodeFilters: [server:0]'
   NOTES_ENABLED=1
 else
   echo "==> Notes: disabled (NOTES_DIR unset)"
@@ -113,7 +118,7 @@ mkdir -p "$STATE_DIR"
 export STATE_DIR
 echo "==> State dir (persists across down/up): $STATE_DIR"
 
-# --- repos (mount mode only) → kind extraMount(s) under /mnt/repos -----------
+# --- repos (mount mode only) → k3d volume(s) under /mnt/repos ----------------
 REPOS_MOUNT=""
 if [[ "$WORKSPACE_MODE" == mount ]]; then
   if [[ -n "${REPOS:-}" ]]; then
@@ -126,13 +131,13 @@ if [[ "$WORKSPACE_MODE" == mount ]]; then
       [[ -d "$src" ]] || { echo "   repo not found: $src — fix REPOS/REPOS_DIR in .env."; exit 1; }
       name=$(basename "$src")
       echo "   + $name  ($src)"
-      REPOS_MOUNT+=$'      - hostPath: '"$src"$'\n        containerPath: /mnt/repos/'"$name"$'\n'
+      REPOS_MOUNT+=$'  - volume: '"$src"$':/mnt/repos/'"$name"$'\n    nodeFilters: [server:0]\n'
     done
   else
     : "${REPOS_DIR:?In mount mode set REPOS (list) or REPOS_DIR (whole dir) in .env}"
     [[ -d "$REPOS_DIR" ]] || { echo "REPOS_DIR '$REPOS_DIR' does not exist — create it or fix .env."; exit 1; }
     echo "==> Repos dir (whole, bind-mounted RW): $REPOS_DIR"
-    REPOS_MOUNT=$'      - hostPath: '"$REPOS_DIR"$'\n        containerPath: /mnt/repos'
+    REPOS_MOUNT=$'  - volume: '"$REPOS_DIR"$':/mnt/repos\n    nodeFilters: [server:0]'
   fi
 fi
 export REPOS_MOUNT
@@ -147,7 +152,7 @@ if [[ "$DOTFILES_MODE" == host || "$DOTFILES_MODE" == chezmoi ]]; then
   : "${DOTFILES_SRC:?For DOTFILES_MODE=$DOTFILES_MODE set DOTFILES_SRC in .env (host dir with your dotfiles)}"
   [[ -d "$DOTFILES_SRC" ]] || { echo "DOTFILES_SRC '$DOTFILES_SRC' is not a directory — fix .env."; exit 1; }
   echo "==> Dotfiles source (RO): $DOTFILES_SRC"
-  DOTFILES_MOUNT=$'      - hostPath: '"$DOTFILES_SRC"$'\n        containerPath: /mnt/dotfiles-src\n        readOnly: true'
+  DOTFILES_MOUNT=$'  - volume: '"$DOTFILES_SRC"$':/mnt/dotfiles-src:ro\n    nodeFilters: [server:0]'
 fi
 export DOTFILES_MOUNT
 
@@ -164,7 +169,7 @@ GH_AUTH_B64="$(printf 'x-access-token:%s' "$PAT" | base64 | tr -d '\n')"
 # the agent pod (as /data), so anything under it is agent-writable — and this file
 # is the gateway's egress policy *over* the agent. Under $STATE_DIR, a compromised
 # agent could append its own exfil host and the gateway would live-reload it (≤10s),
-# bypassing the one boundary it's not supposed to cross. The kind node mounts only
+# bypassing the one boundary it's not supposed to cross. The k3s node mounts only
 # $STATE_DIR, so a sibling dir is invisible to the pod.
 GW_STATE="$(dirname "$STATE_DIR")/gateway"; mkdir -p "$GW_STATE"
 ALLOWLIST_FILE="$GW_STATE/allowlist"
@@ -183,8 +188,8 @@ echo "==> Allowlist: $ALLOWLIST_FILE ($(grep -cvE '^\s*(#|$)' "$ALLOWLIST_FILE")
 # --- docker networks ---------------------------------------------------------
 # cs-*-internal: node + gateway live here. masquerade DISABLED → the node has no
 # working direct egress; its only path out is the gateway (which doesn't forward).
-# Still a normal bridge (not --internal) so kind can publish the apiserver + the
-# ingress ports to the host.
+# Still a normal bridge (not --internal) so k3d can publish the apiserver + the
+# NodePort ports to the host.
 if ! docker network inspect "$NET_INTERNAL" >/dev/null 2>&1; then
   docker network create \
     --subnet "$SUBNET" \
@@ -211,6 +216,8 @@ if [[ "$REBUILD_GATEWAY" == 1 ]] || ! gw_running || [[ "$(gw_relay_now)" != "${H
   # host.docker.internal:host-gateway lets the gateway reach host services for the
   # opt-in HOST_RELAY_PORTS relays (auto on Docker Desktop, needed on plain Linux).
   docker run -d --name "$GW_NAME" --restart unless-stopped \
+    --label "com.docker.compose.project=code-server-${NAME}" \
+    --label com.docker.compose.service=gateway \
     --network "$NET_INTERNAL" --ip "$GW_IP" \
     --cap-add NET_ADMIN --sysctl net.ipv4.ip_forward=0 \
     --add-host host.docker.internal:host-gateway \
@@ -225,37 +232,41 @@ else
   echo "==> Gateway $GW_NAME already running — allowlist refreshed in place (live reload ≤10s)"
 fi
 
-# --- render kind config + create cluster -------------------------------------
-export VSCODE_PORT TTYD_PORT CLUSTER_NAME="$CLUSTER"
-KIND_CFG="kind-cluster-${NAME}.yaml"
-envsubst '${STATE_DIR} ${NOTES_MOUNT} ${REPOS_MOUNT} ${DOTFILES_MOUNT} ${VSCODE_PORT} ${TTYD_PORT} ${CLUSTER_NAME}' \
-  < kind-cluster.yaml.tmpl > "$KIND_CFG"
-if kind get clusters 2>/dev/null | grep -qx "$CLUSTER"; then
-  echo "==> kind cluster '$CLUSTER' already exists"
+# --- render k3d config + create cluster --------------------------------------
+export VSCODE_PORT TTYD_PORT CLUSTER_NAME="$CLUSTER" NET_INTERNAL GW_IP API_PORT NO_PROXY_VAL NAME
+K3D_CFG="k3d-cluster-${NAME}.yaml"
+envsubst '${STATE_DIR} ${NOTES_MOUNT} ${REPOS_MOUNT} ${DOTFILES_MOUNT} ${VSCODE_PORT} ${TTYD_PORT} ${CLUSTER_NAME} ${NET_INTERNAL} ${GW_IP} ${API_PORT} ${NO_PROXY_VAL} ${NAME}' \
+  < k3d-cluster.yaml.tmpl > "$K3D_CFG"
+if k3d cluster list 2>/dev/null | awk 'NR>1{print $1}' | grep -qx "$CLUSTER"; then
+  echo "==> k3d cluster '$CLUSTER' already exists"
   CLUSTER_EXISTED=1
 else
-  echo "==> Creating kind cluster '$CLUSTER' on $NET_INTERNAL"
-  KIND_EXPERIMENTAL_DOCKER_NETWORK="$NET_INTERNAL" kind create cluster --name "$CLUSTER" --config "$KIND_CFG"
+  echo "==> Creating k3d cluster '$CLUSTER' on $NET_INTERNAL"
+  k3d cluster create --config "$K3D_CFG"
   CLUSTER_EXISTED=0
 fi
-kubectl config use-context "kind-$CLUSTER" >/dev/null
+# Merge the cluster's kubeconfig into a SINGLE target file. k3d's own auto-merge
+# (disabled in the config) bails when $KUBECONFIG lists several files; pick the
+# first entry (else ~/.kube/config) and merge there so the context always lands.
+KCFG_TARGET="${KUBECONFIG%%:*}"; KCFG_TARGET="${KCFG_TARGET:-$HOME/.kube/config}"
+mkdir -p "$(dirname "$KCFG_TARGET")"
+KUBECONFIG="$KCFG_TARGET" k3d kubeconfig merge "$CLUSTER" \
+  --kubeconfig-merge-default --kubeconfig-switch-context >/dev/null
+kubectl config use-context "k3d-$CLUSTER" >/dev/null
 
 # --- wire the node to route ALL egress through the gateway -------------------
-# (default route + DNS → gateway; containerd image pulls via the gateway proxy)
+# Default route + DNS → gateway. (Containerd image-pull proxy is NOT set here: it
+# rides on HTTP(S)_PROXY env baked into the k3d node via k3d-cluster.yaml.tmpl,
+# which k3s's embedded containerd inherits — no systemd drop-in like kind needed.
+# That env also persists across `docker start`, unlike these runtime tweaks.)
+# NOTE: these run-time route/DNS changes do NOT survive a host reboot / docker
+# restart — re-run up.sh (idempotent) after a reboot to re-wire (see closing note).
 echo "==> Wiring node egress through the gateway"
-docker exec "$NODE" ip route replace default via "$GW_IP" 2>/dev/null \
+# busybox `ip` (in the k3s image) has no `route replace` → del + add.
+docker exec "$NODE" sh -c "ip route del default 2>/dev/null; ip route add default via '$GW_IP'" 2>/dev/null \
   || echo "   ⚠ could not set node default route (validate manually)"
 docker exec "$NODE" sh -c "printf 'nameserver %s\n' '$GW_IP' > /etc/resolv.conf" 2>/dev/null \
   || echo "   ⚠ could not set node resolv.conf"
-docker exec "$NODE" mkdir -p /etc/systemd/system/containerd.service.d 2>/dev/null || true
-docker exec "$NODE" sh -c "cat > /etc/systemd/system/containerd.service.d/http-proxy.conf <<EOF
-[Service]
-Environment=\"HTTP_PROXY=http://${GW_IP}:8888\"
-Environment=\"HTTPS_PROXY=http://${GW_IP}:8888\"
-Environment=\"NO_PROXY=localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,.svc,.cluster.local\"
-EOF" 2>/dev/null || echo "   ⚠ could not set containerd proxy (image pulls may fail)"
-docker exec "$NODE" systemctl daemon-reload 2>/dev/null || true
-docker exec "$NODE" systemctl restart containerd 2>/dev/null || true
 # CoreDNS forwards external names to the node resolv.conf (= the gateway); restart
 # so it picks up the change. Cluster (.svc) names stay internal.
 kubectl -n kube-system rollout restart deploy/coredns >/dev/null 2>&1 || true
@@ -313,8 +324,11 @@ Egress is allowlisted. Edit EGRESS_ALLOW in .env (or $ALLOWLIST_FILE) and re-run
 ./up.sh --name $NAME — the gateway live-reloads in ≤10s, no pod restart.
 Egress audit log:  docker logs -f $GW_NAME
 
-After a reboot, restart the node + gateway (no need to re-run up.sh):
-   docker start $GW_NAME ${NODE}
+In Docker Desktop the gateway + k3d node are grouped under "code-server-${NAME}".
+
+After a host reboot, re-run ./up.sh --name $NAME (idempotent): the node's default
+route + DNS are runtime settings that don't survive a docker restart, so a bare
+'docker start' brings the containers back but NOT their egress wiring.
 
 Tear down:  ./down.sh --name $NAME
 EOF

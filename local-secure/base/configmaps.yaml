@@ -44,9 +44,9 @@ metadata:
   namespace: code-server-work
 data:
   CLAUDE.md: |
-    # Work sandbox (kind)
+    # Work sandbox (k3s/k3d)
 
-    Running in an isolated local kind cluster. Notes:
+    Running in an isolated local k3s cluster (via k3d). Notes:
     - Git access is via a localhost proxy; there is no GitHub token in this
       container. `git` works normally (clone/fetch/push to allowed repos).
     - clone mode: the workspace is reset to `origin` each boot (commit/push to keep
