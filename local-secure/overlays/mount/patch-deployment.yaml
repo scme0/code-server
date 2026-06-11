@@ -21,7 +21,6 @@ spec:
           command: [bash, /etc/shell-config/common-init.sh]
           volumeMounts:
             - { name: config,            mountPath: /data }
-            - { name: claude-config-src, mountPath: /etc/claude-config }
             - { name: shell-config,      mountPath: /etc/shell-config }
             - { name: dotfiles-src,      mountPath: /mnt/dotfiles-src }
             # mounted so common-init.sh can drop the notes symlink in here (root)

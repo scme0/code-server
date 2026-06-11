@@ -55,7 +55,6 @@ spec:
             - { name: config,            mountPath: /data }
             - { name: workspace,         mountPath: /data/workspace }
             - { name: git-config,        mountPath: /etc/git }
-            - { name: claude-config-src, mountPath: /etc/claude-config }
             - { name: work-repos,        mountPath: /config }
             - { name: shell-config,      mountPath: /etc/shell-config }
             - { name: dotfiles-src,      mountPath: /mnt/dotfiles-src }

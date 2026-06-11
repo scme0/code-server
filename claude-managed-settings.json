@@ -1,0 +1,3 @@
+{
+  "claudeMd": "You are running inside a sandboxed code-server instance (VS Code in the browser) with a mobile terminal. Run heavy or long-running build, test, or analysis work in disposable pods via `k8s-run` — not in this container."
+}

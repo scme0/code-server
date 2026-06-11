@@ -115,6 +115,13 @@ COPY tmux.conf /etc/tmux.conf
 COPY zshrc /etc/zsh/zshrc
 # sandbox-specific Claude skills (common-init.sh copies these into ~/.claude*/skills)
 COPY skills/ /etc/claude-skills/
+# Managed Claude settings, baked into the image: read fresh on every launch and
+# deep-merged UNDER the user's persisted ~/.claude/settings.json (Claude's own
+# settings precedence). Replaces the old per-boot config seeding — image/policy
+# updates flow through without a reset, and user config is never overwritten.
+# Per-deploy drop-ins go in /etc/claude-code/managed-settings.d/ (mounted by the
+# deployment); home gets only this generic baseline.
+COPY claude-managed-settings.json /etc/claude-code/managed-settings.json
 RUN chmod +x /usr/local/bin/start-ttyd.sh /usr/local/bin/k8s-run
 
 # Real Node.js from builder (includes npm/npx) — code-server's bundled node is not a full install

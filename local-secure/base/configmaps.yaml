@@ -35,26 +35,23 @@ data:
     your-org/your-lib
     your-org/helm-charts
 ---
-# Minimal Claude config, force-reset into the config PVC each boot so nothing
-# executable (settings/hooks) persists attacker-controlled across restarts.
+# Per-deploy managed-settings DROP-IN (work-specific). Mounted into the agent
+# containers at /etc/claude-code/managed-settings.d/10-work.json, where Claude Code
+# deep-merges it ON TOP of the image-baked /etc/claude-code/managed-settings.json on
+# every launch — read fresh, no seeding, no per-boot reset. The user's own
+# ~/.claude/settings.json still layers UNDER this and persists untouched. Edit this
+# (GitOps) to evolve the work guidance without rebuilding the image or stranding
+# updates behind a seed-if-missing check. `claudeMd` is a scalar, so this fully
+# replaces the image baseline's claudeMd for the work deploy (home keeps the baseline).
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: claude-config
+  name: claude-managed
   namespace: code-server-work
 data:
-  CLAUDE.md: |
-    # Work sandbox (k3s/k3d)
-
-    Running in an isolated local k3s cluster (via k3d). Notes:
-    - Git access is via a localhost proxy; there is no GitHub token in this
-      container. `git` works normally (clone/fetch/push to allowed repos).
-    - clone mode: the workspace is reset to `origin` each boot (commit/push to keep
-      work). mount mode: your repos are bind-mounted live from the host.
-    - Heavy build/test tooling runs in disposable pods via `k8s-run`.
-  settings.json: |
+  10-work.json: |
     {
-      "includeCoAuthoredBy": true
+      "claudeMd": "Work sandbox on a local k3s cluster (via k3d). Notes for this environment:\n- Git goes through an out-of-cluster boundary gateway: there is NO GitHub token in this container; `git` clone/fetch/push to allowed repos works normally via the proxy.\n- All web/CLI egress is allowlisted by that gateway and fails closed — non-allowlisted domains are refused.\n- Run heavy or long build/test/analysis in disposable pods via `k8s-run`.\n- In clone mode the workspace is reset to `origin` each boot — commit and push to keep work. In mount mode your host repos are bind-mounted live."
     }
 ---
 # Shell/dotfiles provisioning. `zshrc` is the sensible default; `common-init.sh`
@@ -76,13 +73,12 @@ data:
 
     mkdir -p /data/home/.claude /data/code-server
 
-    # Seed Claude config on FIRST boot only (CLAUDE_CONFIG_DIR defaults to
-    # ~/.claude = /data/home/.claude). Your persisted/dotfiles config is kept;
-    # delete a file to re-seed it. Trade-off vs the old per-boot force-reset:
-    # for the locked/shareable scenario, change `||` seeding back to an
-    # unconditional cp so nothing executable persists across boots.
-    [ -f /data/home/.claude/CLAUDE.md ]     || cp /etc/claude-config/CLAUDE.md     /data/home/.claude/CLAUDE.md
-    [ -f /data/home/.claude/settings.json ] || cp /etc/claude-config/settings.json /data/home/.claude/settings.json
+    # Claude config is NOT seeded here any more. The sandbox baseline lives in the
+    # image-baked managed settings (/etc/claude-code/managed-settings.json) plus the
+    # per-deploy drop-in (/etc/claude-code/managed-settings.d/), which Claude reads
+    # fresh every launch and deep-merges UNDER the user's own ~/.claude/settings.json.
+    # So image/policy updates flow through without a reset, and the user's persisted
+    # config is never overwritten. (~/.claude is still created above for user config.)
 
     # Single-root workspace; notes (if enabled) appear via the symlink below, in
     # both the terminal and VS Code. Watcher excludes keep code-server fast.

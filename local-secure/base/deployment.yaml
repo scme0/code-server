@@ -99,6 +99,9 @@ spec:
             # for clone mode (PVC, no sub-mounts). baseline-PSA safe.
             - { name: workspace, mountPath: /data/workspace, mountPropagation: HostToContainer }
             - { name: git-config, mountPath: /etc/git }
+            # Work-specific managed-settings drop-in; deep-merged by Claude on top of
+            # the image-baked /etc/claude-code/managed-settings.json every launch.
+            - { name: claude-managed, mountPath: /etc/claude-code/managed-settings.d, readOnly: true }
             - { name: notes,     mountPath: /mnt/notes }
 
         - name: ttyd
@@ -117,7 +120,7 @@ spec:
       volumes:
         - { name: config,           persistentVolumeClaim: { claimName: sandbox-state } }
         - { name: git-config,       configMap: { name: git-config, items: [{ key: gitconfig, path: gitconfig }] } }
-        - { name: claude-config-src, configMap: { name: claude-config } }
+        - { name: claude-managed,   configMap: { name: claude-managed, items: [{ key: 10-work.json, path: 10-work.json }] } }
         - { name: work-repos,       configMap: { name: work-repos } }
         - { name: shell-config,     configMap: { name: shell-config } }
         # notes via PVC (not a hostPath volume) so the pod is baseline-PSA

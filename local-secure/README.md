@@ -204,12 +204,18 @@ Claude login, memories and history persist across teardowns.
 - Claude config defaults to `~/.claude` (=`/data/home/.claude`). Dotfiles aliases
   to `~/.claude-home` / `~/.claude-work` work too — all live under the persisted
   `/data/home`.
-- First boot **seeds** `~/.claude/CLAUDE.md` + `settings.json` only **if missing**
-  (your persisted/dotfiles config wins). **Security note:** this relaxes the old
-  per-boot force-reset — a compromised agent could persist a malicious
-  `settings.json`/hook. Fine for a personal mount-mode sandbox; for the
-  locked/shareable (clone) scenario, make the seeding in `common-init.sh`
-  unconditional again so nothing executable persists.
+- Claude config is **not seeded** into the PVC. The sandbox baseline lives in
+  **managed settings** instead: a generic, image-baked
+  `/etc/claude-code/managed-settings.json` plus a work-specific drop-in
+  `/etc/claude-code/managed-settings.d/10-work.json` (the `claude-managed`
+  configmap). Claude reads both **fresh every launch** and deep-merges them
+  **under** your own `~/.claude/settings.json`. So image/policy updates flow
+  through with no reset, and your persisted config is never overwritten —
+  replacing the old seed-if-missing (which stranded baseline updates) and the
+  force-reset trade-off (which fought persistence). Edit the work guidance via
+  the configmap (GitOps); no image rebuild. To make the baseline **unoverridable**
+  in the locked/shareable (clone) scenario, add `allowManagedHooksOnly` /
+  `allowManagedPermissionRulesOnly` to a clone-only drop-in.
 - Only `STATE_DIR` and (mount mode) `REPOS_DIR`/`NOTES_DIR` are real host dirs; the
   workspace in clone mode and everything else stays ephemeral.
 
