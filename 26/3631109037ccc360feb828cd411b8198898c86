@@ -1,0 +1,22 @@
+Dockerfile
+  s_972f0dd66bf607::t_d4299d105e5db4 53-64
+  s_972f0dd66bf607::t_70e4304d04b554 99-104
+local-secure/base/configmaps.yaml
+  s_972f0dd66bf607::t_21a26693d18199 130-142
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "263631109037ccc360feb828cd411b8198898c86",
+  "prompts": {},
+  "sessions": {
+    "s_972f0dd66bf607": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "6553b7f1-7d0d-4f52-b6de-900e893ae72e",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "scme0 <scott.merchant@octopus.com>"
+    }
+  }
+}
