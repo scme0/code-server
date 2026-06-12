@@ -191,11 +191,20 @@ echo "==> Allowlist: $ALLOWLIST_FILE ($(grep -cvE '^\s*(#|$)' "$ALLOWLIST_FILE")
 # Still a normal bridge (not --internal) so k3d can publish the apiserver + the
 # NodePort ports to the host.
 if ! docker network inspect "$NET_INTERNAL" >/dev/null 2>&1; then
+  # --ip-range carves the DYNAMIC allocation pool to .32/27 (.32–.63), keeping it
+  # clear of the gateway's static GW_IP (.2). Without this, a Docker/host restart
+  # that brings the k3d node up before the gateway lets the node's dynamic lease
+  # grab .2 — then the gateway can't start ("Address already in use") and, since
+  # the node's default route points at .2 (now itself), all egress dies. The node
+  # + serverlb only need a couple of addresses here (k3s pods live on 10.42/16,
+  # not this docker net), so .32/27 is ample headroom.
+  DYN_RANGE="172.30.${OCTET}.32/27"
   docker network create \
     --subnet "$SUBNET" \
+    --ip-range "$DYN_RANGE" \
     -o com.docker.network.bridge.enable_ip_masquerade=false \
     "$NET_INTERNAL" >/dev/null
-  echo "==> Created network $NET_INTERNAL ($SUBNET, no NAT)"
+  echo "==> Created network $NET_INTERNAL ($SUBNET, dyn pool $DYN_RANGE, no NAT)"
 fi
 # cs-*-egress: normal (masqueraded) bridge — the gateway's path to the internet.
 docker network inspect "$NET_EGRESS" >/dev/null 2>&1 || \
