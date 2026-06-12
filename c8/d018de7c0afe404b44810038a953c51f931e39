@@ -1,0 +1,19 @@
+local-secure/up.sh
+  s_ab6b9c5d2b9d66::t_303f354bdaa25e 194-201,204,207
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "c8d018de7c0afe404b44810038a953c51f931e39",
+  "prompts": {},
+  "sessions": {
+    "s_ab6b9c5d2b9d66": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "8cf2e931-0810-4ad1-a93e-3db188f51536",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "scme0 <scott.merchant@octopus.com>"
+    }
+  }
+}
