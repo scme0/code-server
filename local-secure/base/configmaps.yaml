@@ -127,4 +127,17 @@ data:
       done
     fi
 
+    # Claude Code native CLI: seed the image-baked install into the persisted home
+    # on first boot. Offline copy — the init container has no gateway proxy, so it
+    # cannot fetch. The launcher is an absolute symlink into ~/.local/share/claude,
+    # baked with HOME=/data/home (see Dockerfile) so it resolves here. Skipped if a
+    # claude already exists: the user's self-updating install wins, and `claude
+    # update` runs from the main container, which DOES have egress. Fresh homes get
+    # the baked version; user config in ~/.claude is never touched.
+    if [ -d /opt/claude-bootstrap/.local ] && [ ! -e /data/home/.local/bin/claude ]; then
+      echo "==> seeding claude-code native install into ~/.local"
+      mkdir -p /data/home/.local
+      cp -a /opt/claude-bootstrap/.local/. /data/home/.local/
+    fi
+
     chown -R 1000:1000 /data/home /data/code-server /data/.sandbox.code-workspace

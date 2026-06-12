@@ -50,9 +50,18 @@ RUN KUBECTL_VER=$(curl -sL https://dl.k8s.io/release/stable.txt) && \
       "https://dl.k8s.io/release/${KUBECTL_VER}/bin/linux/${ARCH}/kubectl" && \
     chmod +x /usr/local/bin/kubectl
 
-# claude-code CLI — isolated prefix so we don't copy npm/corepack into prod
-RUN npm install -g @anthropic-ai/claude-code --prefix /opt/claude --silent && \
-    npm cache clean --force
+# claude-code CLI — native installer (self-updating standalone binary; needs no
+# node at runtime). Installed under HOME=/data/home so the launcher's ABSOLUTE
+# symlink (~/.local/bin/claude -> ~/.local/share/claude/versions/<v>) resolves at
+# runtime, where HOME=/data/home too. The tree is staged at /opt/claude-bootstrap;
+# common-init.sh copies it into the persisted ~/.local on first boot. (It is NOT
+# fetched at runtime: the init container has no egress, and we must not put a
+# second claude on PATH or `claude update` trips its multi-install warning.)
+RUN export HOME=/data/home && mkdir -p "$HOME" && \
+    curl -fsSL https://claude.ai/install.sh | bash -s -- stable && \
+    mkdir -p /opt/claude-bootstrap && \
+    mv "$HOME/.local" /opt/claude-bootstrap/.local && \
+    rm -rf "$HOME"
 
 # chezmoi
 RUN sh -c "$(curl -fsLS get.chezmoi.io)" -- -b /usr/local/bin
@@ -87,9 +96,12 @@ RUN apt-get update -qq && \
       libcurl4 libexpat1 zlib1g gettext-base perl && \
     rm -rf /var/lib/apt/lists/*
 
-# claude-code modules (uses code-server's bundled node — no second node binary needed)
-COPY --from=builder /opt/claude/lib/node_modules /usr/local/lib/node_modules
-COPY --from=builder /opt/claude/bin/claude /usr/local/bin/claude
+# claude-code native install, staged for common-init.sh to seed into the persisted
+# ~/.local on first boot. Deliberately NOT placed on PATH here: a /usr/local/bin
+# copy would collide with the user's self-updating ~/.local/bin/claude and trip the
+# "multiple installations found" warning. /data is masked by the PVC at runtime, so
+# the install can't be baked there directly — init copies it out of /opt instead.
+COPY --from=builder /opt/claude-bootstrap /opt/claude-bootstrap
 
 # code-server
 COPY --from=builder /usr/lib/code-server /usr/lib/code-server
