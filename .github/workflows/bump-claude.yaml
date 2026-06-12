@@ -1,0 +1,76 @@
+name: Bump Claude Code version
+
+# Auto-updates ARG CLAUDE_VERSION in the Dockerfile to the latest released
+# claude-code, opens a PR and auto-merges it. Merging to main touches the
+# Dockerfile, which fires build.yaml -> new image + SHA tag. You then pick it up
+# with `git fetch --tags && ./up.sh` (the deploy step stays manual on purpose).
+#
+# Claude is auto-merged because it ships as a closed-source signed binary from
+# downloads.claude.ai (verified by sha256 in its installer) — trusting a new
+# version is the same trust as running claude at all. Open-source / vendor deps
+# (base image, kubectl, code-server, chezmoi, GitHub Actions) stay PR-only.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # daily 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # PAT / App token (NOT the default GITHUB_TOKEN) so the merge commit's
+          # push to main triggers build.yaml. Needs Contents:write + PRs:write.
+          token: ${{ secrets.CLAUDE_BUMP_TOKEN }}
+
+      - name: Resolve latest and current versions
+        id: v
+        run: |
+          set -euo pipefail
+          latest=$(curl -fsSL https://downloads.claude.ai/claude-code-releases/latest)
+          # Validate it looks like a version, not an HTML error page.
+          if [[ ! "$latest" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.].+)?$ ]]; then
+            echo "Unexpected version content: '$latest'" >&2
+            exit 1
+          fi
+          current=$(grep -oP '^ARG CLAUDE_VERSION=\K.*' Dockerfile)
+          echo "latest=$latest"   >> "$GITHUB_OUTPUT"
+          echo "current=$current" >> "$GITHUB_OUTPUT"
+          echo "Current: $current  Latest: $latest"
+
+      - name: Update Dockerfile
+        if: steps.v.outputs.latest != steps.v.outputs.current
+        run: |
+          set -euo pipefail
+          sed -i -E "s/^(ARG CLAUDE_VERSION=).*/\1${{ steps.v.outputs.latest }}/" Dockerfile
+          grep '^ARG CLAUDE_VERSION=' Dockerfile
+
+      - name: Create pull request
+        if: steps.v.outputs.latest != steps.v.outputs.current
+        id: cpr
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.CLAUDE_BUMP_TOKEN }}
+          commit-message: "build: bump claude-code to ${{ steps.v.outputs.latest }}"
+          title: "build: bump claude-code to ${{ steps.v.outputs.latest }}"
+          body: |
+            Automated bump of `ARG CLAUDE_VERSION`
+            `${{ steps.v.outputs.current }}` → `${{ steps.v.outputs.latest }}`
+
+            Source: https://downloads.claude.ai/claude-code-releases/latest
+
+            Merging fires the image build; run `git fetch --tags && ./up.sh` to roll a pod onto it.
+          branch: auto/bump-claude
+          delete-branch: true
+
+      - name: Enable auto-merge
+        if: steps.cpr.outputs.pull-request-number
+        run: gh pr merge --squash --auto "${{ steps.cpr.outputs.pull-request-number }}"
+        env:
+          GH_TOKEN: ${{ secrets.CLAUDE_BUMP_TOKEN }}

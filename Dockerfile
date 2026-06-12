@@ -57,8 +57,15 @@ RUN KUBECTL_VER=$(curl -sL https://dl.k8s.io/release/stable.txt) && \
 # common-init.sh copies it into the persisted ~/.local on first boot. (It is NOT
 # fetched at runtime: the init container has no egress, and we must not put a
 # second claude on PATH or `claude update` trips its multi-install warning.)
+#
+# CLAUDE_VERSION pins the installed version. BUMP IT to ship a new claude: an
+# explicit version makes the build reproducible AND busts Docker's layer cache for
+# this RUN (a bare `stable` would be evaluated once then cached forever, freezing
+# the version across rebuilds). On locked deploys (CLAUDE_PIN_TO_IMAGE=1) this baked
+# version is the ONLY update path, since runtime `claude update` has no GCS egress.
+ARG CLAUDE_VERSION=2.1.175
 RUN export HOME=/data/home && mkdir -p "$HOME" && \
-    curl -fsSL https://claude.ai/install.sh | bash -s -- stable && \
+    curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_VERSION" && \
     mkdir -p /opt/claude-bootstrap && \
     mv "$HOME/.local" /opt/claude-bootstrap/.local && \
     rm -rf "$HOME"

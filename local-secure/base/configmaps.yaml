@@ -127,17 +127,35 @@ data:
       done
     fi
 
-    # Claude Code native CLI: seed the image-baked install into the persisted home
-    # on first boot. Offline copy — the init container has no gateway proxy, so it
-    # cannot fetch. The launcher is an absolute symlink into ~/.local/share/claude,
-    # baked with HOME=/data/home (see Dockerfile) so it resolves here. Skipped if a
-    # claude already exists: the user's self-updating install wins, and `claude
-    # update` runs from the main container, which DOES have egress. Fresh homes get
-    # the baked version; user config in ~/.claude is never touched.
-    if [ -d /opt/claude-bootstrap/.local ] && [ ! -e /data/home/.local/bin/claude ]; then
-      echo "==> seeding claude-code native install into ~/.local"
-      mkdir -p /data/home/.local
-      cp -a /opt/claude-bootstrap/.local/. /data/home/.local/
+    # Claude Code native CLI: seed the image-baked install into the persisted home.
+    # Offline copy — the init container has no gateway proxy, so it cannot fetch. The
+    # launcher is an absolute symlink into ~/.local/share/claude, baked with
+    # HOME=/data/home (see Dockerfile) so it resolves here. User config in ~/.claude
+    # is never touched (different path).
+    #
+    # Two modes, selected by CLAUDE_PIN_TO_IMAGE (set on the init container):
+    #   unset/0 (default, egress-capable homes): seed only when missing. The user's
+    #     self-updating ~/.local install then keeps itself current via `claude update`.
+    #   1 (locked deploys, e.g. work): no GCS egress, so `claude update` can't run and
+    #     the image is the only update path. Re-sync when the baked version is NEWER
+    #     than what's on the PVC. Never downgrades — a stale image leaves the PVC alone.
+    if [ -d /opt/claude-bootstrap/.local ]; then
+      if [ "${CLAUDE_PIN_TO_IMAGE:-0}" = "1" ]; then
+        baked_v=$(basename "$(readlink /opt/claude-bootstrap/.local/bin/claude 2>/dev/null)")
+        have_v=$(basename "$(readlink /data/home/.local/bin/claude 2>/dev/null)")
+        # newest of the two by version sort; act only if baked is strictly newer
+        newest=$(printf '%s\n%s\n' "$baked_v" "$have_v" | sort -V | tail -1)
+        if [ -n "$baked_v" ] && [ "$baked_v" != "$have_v" ] && [ "$newest" = "$baked_v" ]; then
+          echo "==> pinning claude-code to image version $baked_v (had ${have_v:-none})"
+          rm -rf /data/home/.local/share/claude /data/home/.local/bin/claude
+          mkdir -p /data/home/.local
+          cp -a /opt/claude-bootstrap/.local/. /data/home/.local/
+        fi
+      elif [ ! -e /data/home/.local/bin/claude ]; then
+        echo "==> seeding claude-code native install into ~/.local"
+        mkdir -p /data/home/.local
+        cp -a /opt/claude-bootstrap/.local/. /data/home/.local/
+      fi
     fi
 
     chown -R 1000:1000 /data/home /data/code-server /data/.sandbox.code-workspace

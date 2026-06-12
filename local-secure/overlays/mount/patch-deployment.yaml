@@ -16,6 +16,12 @@ spec:
           image: scottyjoe9/code-server:3412923
           securityContext:
             runAsUser: 0                  # to chown the config PVC dirs
+          env:
+            # Locked deploy: no GCS egress, so `claude update` can't run. Make the
+            # image the update path — common-init.sh re-syncs the baked claude onto
+            # the PVC when it is newer. Home (egress) deploys leave this unset.
+            - name: CLAUDE_PIN_TO_IMAGE
+              value: "1"
           envFrom:
             - configMapRef: { name: dotfiles-config, optional: true }
           command: [bash, /etc/shell-config/common-init.sh]
