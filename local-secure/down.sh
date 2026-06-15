@@ -33,6 +33,23 @@ k3d cluster delete "$CLUSTER" 2>/dev/null || true
 docker rm -f "$GW_NAME" >/dev/null 2>&1 || true
 docker network rm "$NET_INTERNAL" "$NET_EGRESS" >/dev/null 2>&1 || true
 rm -f "k3d-cluster-${NAME}.yaml"
+
+# Prune this cluster's entries from the dedicated kubeconfig that up.sh writes via
+# `k3d kubeconfig merge --output`. Because that's a standalone --output file (not
+# k3d's default config), `k3d cluster delete` does NOT clean it up — the context,
+# cluster, and user entries linger. Remove them by name (k3d's naming convention).
+KCFG_TARGET="${CODESERVER_KUBECONFIG:-$HOME/.kube/code-server.yaml}"
+if [[ -f "$KCFG_TARGET" ]] && command -v kubectl >/dev/null 2>&1; then
+  kubectl --kubeconfig "$KCFG_TARGET" config delete-context "k3d-$CLUSTER"       >/dev/null 2>&1 || true
+  kubectl --kubeconfig "$KCFG_TARGET" config delete-cluster "k3d-$CLUSTER"       >/dev/null 2>&1 || true
+  kubectl --kubeconfig "$KCFG_TARGET" config delete-user    "admin@k3d-$CLUSTER" >/dev/null 2>&1 || true
+  # If that was the active context, drop the now-dangling current-context pointer.
+  if [[ "$(kubectl --kubeconfig "$KCFG_TARGET" config current-context 2>/dev/null)" == "k3d-$CLUSTER" ]]; then
+    kubectl --kubeconfig "$KCFG_TARGET" config unset current-context >/dev/null 2>&1 || true
+  fi
+  echo "🧹 Pruned kubeconfig entries for 'k3d-$CLUSTER' from $KCFG_TARGET"
+fi
+
 echo "✅ Torn down instance '$NAME' (cluster + gateway + networks)."
 
 if [[ "$PURGE_STATE" == 1 ]]; then
