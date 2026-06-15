@@ -254,13 +254,17 @@ else
   k3d cluster create --config "$K3D_CFG"
   CLUSTER_EXISTED=0
 fi
-# Merge the cluster's kubeconfig into a SINGLE target file. k3d's own auto-merge
-# (disabled in the config) bails when $KUBECONFIG lists several files; pick the
-# first entry (else ~/.kube/config) and merge there so the context always lands.
-KCFG_TARGET="${KUBECONFIG%%:*}"; KCFG_TARGET="${KCFG_TARGET:-$HOME/.kube/config}"
+# Write the cluster's kubeconfig into its OWN dedicated, local-only file (sits
+# alongside ~/.kube/config and the kind file). It is NOT merged into the default
+# config — that one is chezmoi-committed and must stay pristine. --output targets
+# the dedicated file directly, so the committed default is never read or written.
+# Add $CODESERVER_KUBECONFIG to your KUBECONFIG list (zshrc) for detection.
+KCFG_TARGET="${CODESERVER_KUBECONFIG:-$HOME/.kube/code-server.yaml}"
 mkdir -p "$(dirname "$KCFG_TARGET")"
-KUBECONFIG="$KCFG_TARGET" k3d kubeconfig merge "$CLUSTER" \
-  --kubeconfig-merge-default --kubeconfig-switch-context >/dev/null
+k3d kubeconfig merge "$CLUSTER" --output "$KCFG_TARGET" >/dev/null
+# Scope the rest of this script's kubectl to that file: the applies below hit the
+# k3d cluster, and the committed default config is never touched.
+export KUBECONFIG="$KCFG_TARGET"
 kubectl config use-context "k3d-$CLUSTER" >/dev/null
 
 # --- wire the node to route ALL egress through the gateway -------------------
