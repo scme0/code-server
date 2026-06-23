@@ -84,6 +84,39 @@ run heavy/test work in disposable `k8s-run` pods (off-host).
 - **WSL2:** run everything inside the WSL2 distro; keep `NOTES_DIR` on the WSL2
   filesystem (`/home/...`), not `/mnt/c/...`.
 
+### Windows (WSL2 only)
+
+`up.sh` / `down.sh` are **bash** scripts — there is **no native Windows
+(PowerShell / cmd) support**, and Git Bash isn't enough (it lacks `envsubst`,
+`op`, `k3d`, and the Linux Docker networking these rely on). On Windows, run the
+whole thing **inside a WSL2 distro** (Ubuntu is fine). Everything below is run
+from the WSL2 shell, not Windows:
+
+1. **Docker Desktop with the WSL2 backend.** Install Docker Desktop on Windows,
+   then enable *Settings → Resources → WSL Integration* for your distro so
+   `docker` works inside WSL2. (`up.sh`'s `docker info` preflight must pass from
+   the distro.) The `host.docker.internal` host-relay path (`HOST_RELAY_PORTS`)
+   works on this backend.
+2. **Install the CLI tools inside the distro** — none ship with WSL2 by default:
+   - `envsubst` → `sudo apt install gettext-base`
+   - `base64` → preinstalled (coreutils)
+   - `k3d` → `curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash`
+   - `kubectl` → install the Linux binary (kustomize is bundled with recent kubectl)
+   - `op` (1Password CLI) → install the Linux build **inside the distro**; the
+     Windows desktop app does not expose the CLI into WSL2 on its own.
+3. **Sign in to 1Password from the distro:** `eval $(op signin)` (the
+   `op account get` preflight must pass).
+4. **Keep all host paths on the WSL2 filesystem, NOT `/mnt/c/...`.** This covers
+   `REPOS_DIR` / `REPOS`, `NOTES_DIR`, `DOTFILES_SRC`, and the state dir
+   (`~/.code-server-<name>/state` resolves inside the distro). Mounting Windows
+   drive paths (`/mnt/c`) is slow over the 9p bridge and breaks uid/perm mapping
+   (see **Known rough edges** — the container runs as uid 1000, which matches a
+   default WSL2 user but not a `/mnt/c` mount).
+
+The k3s node, gateway, and all egress wiring run inside Linux containers
+regardless of host, so the `docker exec … ip route / iptables` steps behave
+identically to macOS once Docker + the tools are in place.
+
 ## Setup
 
 ```bash
