@@ -14,6 +14,14 @@ setopt INC_APPEND_HISTORY SHARE_HISTORY HIST_IGNORE_DUPS HIST_IGNORE_SPACE
 setopt AUTO_CD INTERACTIVE_COMMENTS
 export EDITOR=vi LANG=C.UTF-8
 
+# Claude Code: classic scrolling renderer. The default flicker-free renderer
+# repaints with absolute cursor addressing and never scrolls finalized
+# transcript lines off the top, so tmux history and the browser terminal's
+# scrollback stay empty — scrolling up (mobile especially) shows torn repaint
+# fragments instead of the conversation. The classic renderer commits the
+# transcript to scrollback as it goes.
+export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1
+
 # Completion
 autoload -Uz compinit && compinit -d "$HOME/.zcompdump"
 zstyle ':completion:*' menu select
