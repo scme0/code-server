@@ -12,6 +12,7 @@
         if (container && (window.term || window.socket)) {
             obs.disconnect();
             initClipboard(container);
+            initComposition();
             initShiftEnter();
             if (isMobile()) initMobile(container);
         }
@@ -50,7 +51,10 @@
                     const b64 = data.slice(semi + 1);
                     if (!b64 || b64 === '?') return false;
                     try {
-                        const text = atob(b64);
+                        // atob yields one char per BYTE — decoding as UTF-8 keeps
+                        // multibyte chars (é, 轮) intact instead of latin-1 mojibake.
+                        const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+                        const text = new TextDecoder().decode(bytes);
                         navigator.clipboard.writeText(text).catch(() => {});
                     } catch {}
                     return false; // let xterm also handle it
@@ -58,6 +62,28 @@
             } catch (e) {
                 console.error('[clip] registerOscHandler unavailable:', e);
             }
+        };
+        setup();
+    }
+
+    // ── Dead-key composition fix (xterm.js #2661) ──────────────────────────────
+    // Gecko delivers real keyCodes (not 229) for keydowns during dead-key
+    // composition (mac option+e, e → é). xterm's CompositionHelper force-finalizes
+    // the composition on any non-229 keydown, sending the placeholder accent ("´")
+    // in addition to the composed char — the shell sees "´é". Swallow those
+    // keydowns; the composition events already deliver the final text. Also swallow
+    // 'Dead' keydowns so xterm's _unprocessedDeadKey latch can't eat the next
+    // regular keystroke. Chromium/WebKit send keyCode 229 here, so they take the
+    // same code path as before.
+    function initComposition() {
+        const setup = () => {
+            if (!window.term?.attachCustomKeyEventHandler) { setTimeout(setup, 200); return; }
+            window.term.attachCustomKeyEventHandler((e) => {
+                if (e.type !== 'keydown') return true;
+                if (e.key === 'Dead') return false;
+                if (e.isComposing && e.keyCode !== 229) return false;
+                return true;
+            });
         };
         setup();
     }
