@@ -63,7 +63,7 @@ RUN KUBECTL_VER=$(curl -sL https://dl.k8s.io/release/stable.txt) && \
 # this RUN (a bare `stable` would be evaluated once then cached forever, freezing
 # the version across rebuilds). On locked deploys (CLAUDE_PIN_TO_IMAGE=1) this baked
 # version is the ONLY update path, since runtime `claude update` has no GCS egress.
-ARG CLAUDE_VERSION=2.1.201
+ARG CLAUDE_VERSION=2.1.202
 RUN export HOME=/data/home && mkdir -p "$HOME" && \
     curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_VERSION" && \
     mkdir -p /opt/claude-bootstrap && \
