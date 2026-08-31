@@ -158,4 +158,13 @@ data:
       fi
     fi
 
-    chown -R 1000:1000 /data/home /data/code-server /data/.sandbox.code-workspace
+    chown -R 1000:1000 /data/home /data/.sandbox.code-workspace
+
+    # /data/code-server holds code-server's own state, including the unix socket it
+    # drops for the `code` CLI (code-server-ipc.sock). The state PVC is a macOS
+    # bind mount (Docker Desktop), which lists that socket but cannot stat, chown or
+    # unlink it from inside a container — so `chown -R` fails ENOENT on the second
+    # and every later boot and (set -e) kills this init. The socket is recreated on
+    # every start, so a partial chown here is harmless; warn instead of dying.
+    chown -R 1000:1000 /data/code-server \
+      || echo "WARN partial chown of /data/code-server (stale code-server-ipc.sock on a bind mount) — continuing"
