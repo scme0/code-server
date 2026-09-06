@@ -130,6 +130,7 @@ COPY --from=builder /tmp/gitroot/usr/local/ /usr/local/
 COPY mobile-controller.js /usr/local/lib/mobile-controller.js
 COPY start-ttyd.sh /usr/local/bin/start-ttyd.sh
 COPY k8s-run /usr/local/bin/k8s-run
+COPY k8s-dev /usr/local/bin/k8s-dev
 COPY tmux.conf /etc/tmux.conf
 COPY zshrc /etc/zsh/zshrc
 # sandbox-specific Claude skills (common-init.sh copies these into ~/.claude*/skills)
@@ -141,7 +142,7 @@ COPY skills/ /etc/claude-skills/
 # Per-deploy drop-ins go in /etc/claude-code/managed-settings.d/ (mounted by the
 # deployment); home gets only this generic baseline.
 COPY claude-managed-settings.json /etc/claude-code/managed-settings.json
-RUN chmod +x /usr/local/bin/start-ttyd.sh /usr/local/bin/k8s-run
+RUN chmod +x /usr/local/bin/start-ttyd.sh /usr/local/bin/k8s-run /usr/local/bin/k8s-dev
 
 # Real Node.js from builder (includes npm/npx) — code-server's bundled node is not a full install
 COPY --from=builder /usr/local/bin/node /usr/local/bin/node

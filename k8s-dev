@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+# Long-lived companion to k8s-run: a warm pod you exec into repeatedly.
+#
+# k8s-run is one-shot, which is right for a single build but wrong for a
+# check you want to run before every push — every pod starts cold, and for
+# something like Flutter that means minutes of SDK setup to save seconds of
+# analysis. Keeping one pod alive moves that cost to once per session.
+#
+# The toolchain lives in the pod, not in the caller's image, so nothing
+# language-specific has to be baked into a dev container.
+#
+# Usage:
+#   k8s-dev start --image IMG [--dir RELDIR] [--name N] [--ttl SEC] [--setup CMD]
+#   k8s-dev exec  [--name N] CMD...
+#   k8s-dev stop  [--name N]
+#   k8s-dev status
+set -euo pipefail
+
+NAMESPACE="${KDEV_NS:-code-server}"
+PVC="${KDEV_PVC:-code-server-workspace}"
+NAME="${KDEV_NAME:-kdev}"
+IMAGE=""
+RELDIR=""
+SETUP=""
+TTL="${KDEV_TTL:-3600}"
+
+usage() {
+  cat <<'EOF'
+k8s-dev: a warm pod you exec into, for repeated checks
+
+  start   create the pod (no-op if it is already running)
+    --image  IMAGE   container image (required)
+    --dir    RELDIR  working dir under /data/workspace
+    --name   N       pod name suffix, so several can coexist (default: kdev)
+    --ttl    SEC     idle seconds before it exits on its own (default: 3600)
+    --setup  CMD     one-time command run after the pod starts
+
+  exec    run a command inside it, resetting the idle timer
+  stop    delete it
+  status  show what is running
+
+The pod exits on its own once TTL seconds pass with no exec. That matters:
+a pod that lives until told otherwise is a pod someone forgets, and it holds
+a node slot while it idles.
+EOF
+}
+
+pod_name() { echo "${NAME}-$(id -u)"; }
+
+pod_phase() {
+  kubectl get pod "$(pod_name)" -n "$NAMESPACE" \
+    -o jsonpath='{.status.phase}' 2>/dev/null || true
+}
+
+cmd_start() {
+  [[ -z "$IMAGE" ]] && { echo "--image is required" >&2; exit 1; }
+  local pod; pod=$(pod_name)
+
+  if [[ "$(pod_phase)" == "Running" ]]; then
+    echo "==> $pod already running"
+    [[ -n "$SETUP" ]] && cmd_exec "$SETUP"
+    return 0
+  fi
+
+  # A pod in any other phase is finished or broken; replace it.
+  kubectl delete pod "$pod" -n "$NAMESPACE" --wait=true 2>/dev/null || true
+
+  local workdir="/data/workspace"
+  [[ -n "$RELDIR" ]] && workdir="/data/workspace/$RELDIR"
+
+  # PID 1 is an idle watchdog rather than `sleep`: `exec` touches the
+  # heartbeat, so an active session keeps the pod alive and an abandoned one
+  # cleans itself up.
+  local keeper
+  keeper=$(cat <<KEEPER
+touch /tmp/.kdev-heartbeat
+while [ \$(( \$(date +%s) - \$(stat -c %Y /tmp/.kdev-heartbeat) )) -lt $TTL ]; do
+  sleep 15
+done
+KEEPER
+)
+
+  jq -n \
+    --arg name "$pod" --arg ns "$NAMESPACE" --arg image "$IMAGE" \
+    --arg workdir "$workdir" --arg cmd "$keeper" --arg pvc "$PVC" \
+    '{
+      apiVersion: "v1", kind: "Pod",
+      metadata: {name: $name, namespace: $ns, labels: {app: "kdev"}},
+      spec: {
+        restartPolicy: "Never",
+        affinity: {podAffinity: {requiredDuringSchedulingIgnoredDuringExecution: [{
+          labelSelector: {matchLabels: {"app.kubernetes.io/name": "code-server"}},
+          topologyKey: "kubernetes.io/hostname"
+        }]}},
+        volumes: [{name: "workspace", persistentVolumeClaim: {claimName: $pvc}}],
+        containers: [{
+          name: "dev", image: $image, workingDir: $workdir,
+          command: ["/bin/sh", "-c", $cmd],
+          securityContext: {
+            allowPrivilegeEscalation: false,
+            capabilities: {drop: ["ALL"]},
+            seccompProfile: {type: "RuntimeDefault"}
+          },
+          volumeMounts: [{
+            name: "workspace", mountPath: "/data/workspace",
+            mountPropagation: "HostToContainer"
+          }]
+        }]
+      }
+    }' | kubectl apply -f - >/dev/null
+
+  echo -n "==> starting $pod"
+  for _ in $(seq 1 60); do
+    [[ "$(pod_phase)" == "Running" ]] && break
+    echo -n "."; sleep 2
+  done
+  echo
+  [[ "$(pod_phase)" != "Running" ]] && {
+    echo "pod did not start" >&2
+    kubectl get events -n "$NAMESPACE" \
+      --field-selector "involvedObject.name=$pod" --sort-by=.lastTimestamp | tail -5 >&2
+    exit 1
+  }
+  echo "==> $pod ready (idle timeout ${TTL}s)"
+  [[ -n "$SETUP" ]] && cmd_exec "$SETUP"
+  return 0
+}
+
+cmd_exec() {
+  local pod; pod=$(pod_name)
+  [[ "$(pod_phase)" != "Running" ]] && {
+    echo "$pod is not running — k8s-dev start first" >&2; exit 1; }
+  # Reset the idle timer before the command, so a long one cannot expire midway.
+  kubectl exec -n "$NAMESPACE" "$pod" -- touch /tmp/.kdev-heartbeat 2>/dev/null || true
+  kubectl exec -n "$NAMESPACE" "$pod" -- /bin/sh -lc "$*"
+}
+
+cmd_stop() {
+  local pod; pod=$(pod_name)
+  kubectl delete pod "$pod" -n "$NAMESPACE" --wait=false 2>/dev/null \
+    && echo "==> deleted $pod" || echo "==> $pod not found"
+}
+
+cmd_status() {
+  kubectl get pods -n "$NAMESPACE" -l app=kdev \
+    -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,AGE:.metadata.creationTimestamp 2>/dev/null \
+    || echo "none"
+}
+
+[[ $# -eq 0 ]] && { usage; exit 1; }
+ACTION="$1"; shift
+
+REST=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --image) IMAGE="$2"; shift 2 ;;
+    --dir)   RELDIR="$2"; shift 2 ;;
+    --name)  NAME="$2"; shift 2 ;;
+    --ttl)   TTL="$2"; shift 2 ;;
+    --setup) SETUP="$2"; shift 2 ;;
+    --ns)    NAMESPACE="$2"; shift 2 ;;
+    --pvc)   PVC="$2"; shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) REST+=("$1"); shift ;;
+  esac
+done
+
+case "$ACTION" in
+  start)  cmd_start ;;
+  exec)   [[ ${#REST[@]} -eq 0 ]] && { echo "exec needs a command" >&2; exit 1; }
+          cmd_exec "${REST[*]}" ;;
+  stop)   cmd_stop ;;
+  status) cmd_status ;;
+  *) usage; exit 1 ;;
+esac
