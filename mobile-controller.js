@@ -252,6 +252,24 @@
             touchY = getTouchY(e);
         }, { passive: false, capture: true });
 
+        // Drag scrolls TMUX, not the browser buffer. ttyd runs with scrollback=0
+        // (see start-ttyd.sh) because a browser-side buffer only ever holds a
+        // stale copy of what tmux has repainted. tmux has mouse on, so SGR wheel
+        // reports drive copy-mode and page through the real, per-window history.
+        // Wheel needs a cell position: tmux uses it to pick the pane under the
+        // finger, so translate the touch point instead of hardcoding 1;1.
+        const cellAt = (touch) => {
+            const r = container.getBoundingClientRect();
+            const cols = window.term?.cols || 80;
+            const rows = window.term?.rows || 24;
+            const col = Math.floor((touch.clientX - r.left) / (r.width / cols)) + 1;
+            const row = Math.floor((touch.clientY - r.top) / (r.height / rows)) + 1;
+            return [
+                Math.min(Math.max(col, 1), cols),
+                Math.min(Math.max(row, 1), rows)
+            ];
+        };
+
         container.addEventListener('touchmove', e => {
             e.preventDefault();
             e.stopPropagation();
@@ -260,13 +278,12 @@
             const delta = touchY - y;
             const lines = Math.round(delta / 20);
             if (lines) {
-                const isAltScreen = window.term?.buffer?.active?.type === 'alternate';
-                if (isAltScreen) {
-                    const seq = delta > 0 ? '\x1b[6~' : '\x1b[5~';
-                    for (let i = 0; i < Math.abs(lines); i++) sendData(seq);
-                } else if (window.term?.scrollLines) {
-                    window.term.scrollLines(lines);
-                }
+                // Alt-screen apps (vim, less) get their own mouse reporting from
+                // tmux, so the same wheel report is what they want too.
+                const [col, row] = cellAt(e.touches[0]);
+                const btn = delta > 0 ? 65 : 64;   // SGR 1006: 64 = up, 65 = down
+                const seq = `\x1b[<${btn};${col};${row}M`;
+                for (let i = 0; i < Math.abs(lines); i++) sendData(seq);
                 touchY = y;
             }
         }, { passive: false, capture: true });
