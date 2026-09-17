@@ -14,13 +14,15 @@ setopt INC_APPEND_HISTORY SHARE_HISTORY HIST_IGNORE_DUPS HIST_IGNORE_SPACE
 setopt AUTO_CD INTERACTIVE_COMMENTS
 export EDITOR=vi LANG=C.UTF-8
 
-# Claude Code: classic scrolling renderer. The default flicker-free renderer
-# repaints with absolute cursor addressing and never scrolls finalized
-# transcript lines off the top, so tmux history and the browser terminal's
-# scrollback stay empty — scrolling up (mobile especially) shows torn repaint
-# fragments instead of the conversation. The classic renderer commits the
-# transcript to scrollback as it goes.
-export CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1
+# Claude Code: fullscreen renderer, which keeps its own virtualized scrollback
+# and scrolls it on mouse wheel. tmux has mouse on (see /etc/tmux.conf), so wheel
+# and mobile drag reach Claude as SGR mouse reports, and history never depends
+# on tmux or the browser buffer. The classic renderer (DISABLE_ALTERNATE_SCREEN)
+# was tried and fails: on every resize, which the mobile keyboard causes, it
+# reprints the whole transcript at the new width, so tmux history fills with
+# overlapping copies cut mid-sentence. Set explicitly because Claude otherwise
+# auto-disables fullscreen after a few failed starts and never retries.
+export CLAUDE_CODE_NO_FLICKER=1
 
 # Completion
 autoload -Uz compinit && compinit -d "$HOME/.zcompdump"
