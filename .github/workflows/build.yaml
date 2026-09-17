@@ -13,6 +13,7 @@ on:
       - '.github/workflows/build.yaml'
       - 'mobile-controller.js'
       - 'start-ttyd.sh'
+      - 'start-remote-shell.sh'
       - 'k8s-run'
       - 'tmux.conf'
       - 'zshrc'

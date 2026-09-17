@@ -26,6 +26,12 @@ fs.writeFileSync('$CUSTOM_HTML', patched);
 console.log('Patched ttyd index.html with mobile controller');
 "
 
+# Native-terminal access (sshd + etserver) to the same tmux session. Opt-in:
+# it has to run in this container to share the tmux socket in /tmp.
+if [ "${REMOTE_SHELL:-0}" = 1 ]; then
+  /usr/local/bin/start-remote-shell.sh &
+fi
+
 # Launch real ttyd — tmux for session persistence, zsh -l for dotfiles.
 #
 # scrollback=0 is deliberate: tmux owns the history (see /etc/tmux.conf). A

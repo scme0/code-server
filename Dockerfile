@@ -103,6 +103,22 @@ RUN apt-get update -qq && \
       libcurl4 libexpat1 zlib1g gettext-base perl && \
     rm -rf /var/lib/apt/lists/*
 
+# Native-terminal access (start-remote-shell.sh, opt-in via REMOTE_SHELL=1):
+# openssh-server for the login, Eternal Terminal for a session that survives
+# app switches and network changes. Bookworm has no et package; upstream's deb
+# repo ships amd64 + arm64. The package's systemd unit is inert here: the
+# start script runs etserver itself, as the pod user. /run/sshd is normally
+# made by systemd's tmpfiles, which never runs in a container.
+RUN curl -fsSL https://github.com/MisterTea/debian-et/raw/master/et.gpg \
+      -o /usr/share/keyrings/et.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/et.gpg] https://mistertea.github.io/debian-et/debian-source/ bookworm main" \
+      > /etc/apt/sources.list.d/et.list && \
+    apt-get update -qq && \
+    apt-get install -y -qq --no-install-recommends openssh-server et && \
+    rm -f /etc/ssh/ssh_host_* && \
+    mkdir -p /run/sshd && chmod 755 /run/sshd && \
+    rm -rf /var/lib/apt/lists/*
+
 # claude-code native install, staged for common-init.sh to seed into the persisted
 # ~/.local on first boot. Deliberately NOT placed on PATH here: a /usr/local/bin
 # copy would collide with the user's self-updating ~/.local/bin/claude and trip the
@@ -129,6 +145,7 @@ COPY --from=builder /tmp/gitroot/usr/local/ /usr/local/
 # scripts
 COPY mobile-controller.js /usr/local/lib/mobile-controller.js
 COPY start-ttyd.sh /usr/local/bin/start-ttyd.sh
+COPY start-remote-shell.sh /usr/local/bin/start-remote-shell.sh
 COPY k8s-run /usr/local/bin/k8s-run
 COPY k8s-dev /usr/local/bin/k8s-dev
 COPY tmux.conf /etc/tmux.conf
@@ -142,7 +159,7 @@ COPY skills/ /etc/claude-skills/
 # Per-deploy drop-ins go in /etc/claude-code/managed-settings.d/ (mounted by the
 # deployment); home gets only this generic baseline.
 COPY claude-managed-settings.json /etc/claude-code/managed-settings.json
-RUN chmod +x /usr/local/bin/start-ttyd.sh /usr/local/bin/k8s-run /usr/local/bin/k8s-dev
+RUN chmod +x /usr/local/bin/start-ttyd.sh /usr/local/bin/start-remote-shell.sh /usr/local/bin/k8s-run /usr/local/bin/k8s-dev
 
 # Real Node.js from builder (includes npm/npx) — code-server's bundled node is not a full install
 COPY --from=builder /usr/local/bin/node /usr/local/bin/node
@@ -150,8 +167,13 @@ COPY --from=builder /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/
 RUN ln -s /usr/local/lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm && \
     ln -s /usr/local/lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
 
-# workspace dir + non-root user
-RUN groupadd -g 1000 node && useradd -u 1000 -g node -m node && \
+# workspace dir + non-root user. Its passwd home is /data/home, matching the
+# HOME every container sets, because sshd takes HOME (and where it looks for
+# authorized_keys) from passwd, not the environment. Login shell zsh for the
+# same reason. Password '*' rather than useradd's '!': both refuse password
+# login, but sshd can read '!' as a locked account and refuse keys too.
+RUN groupadd -g 1000 node && \
+    useradd -u 1000 -g node -d /data/home -s /bin/zsh -p '*' node && \
     mkdir -p /data/workspace && chown node:node /data/workspace
 
 USER node
