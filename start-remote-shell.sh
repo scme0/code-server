@@ -55,7 +55,7 @@ log "$(grep -c '^[^#[:space:]]' "$HOME/.ssh/authorized_keys" || true) authorized
 # ssh commands, and for etterminal, which needs XDG_RUNTIME_DIR.
 # sshd keeps only the first SetEnv line, so every pair goes on one.
 setenv="SetEnv \"XDG_RUNTIME_DIR=$RUNTIME_DIR\""
-for var in PATH LANG LC_ALL CLAUDE_CONFIG_DIR CLAUDE_CLI_PATH GITSTATUS_CACHE_DIR TALOSCONFIG; do
+for var in PATH LANG LC_ALL TZ CLAUDE_CONFIG_DIR CLAUDE_CLI_PATH GITSTATUS_CACHE_DIR TALOSCONFIG; do
   val="${!var-}"
   [ -n "$val" ] && setenv+=" \"$var=$val\""
 done
