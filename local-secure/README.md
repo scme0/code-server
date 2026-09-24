@@ -139,7 +139,7 @@ Store it in 1Password and point `OP_GH_PAT_REF` at it.
 ## Run
 
 ```bash
-./up.sh                 # uses the image for the CURRENT git commit (CI tags by SHA)
+./up.sh                 # uses the image for the most recent built commit (CI tags vX.Y.Z + SHA)
 ./up.sh --latest        # use the `latest` image (e.g. while HEAD is still building)
 ./up.sh --tag <tag>     # use a specific image tag
 ./up.sh --name test     # a separate instance (see Multiple instances)
