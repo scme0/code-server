@@ -25,7 +25,7 @@ Usage: ./up.sh [--name NAME] [--tag <image-tag> | --latest] [--rebuild-gateway]
   --name NAME         instance name (default: work). Each name = a separate
                       cluster/gateway/state/ports. Use a new name to test without
                       touching an existing instance.
-  --tag / --latest    code-server image tag (default: current git short SHA).
+  --tag / --latest    code-server image tag (default: most recent git tag, vX.Y.Z preferred).
   --rebuild-gateway   force rebuild + recreate the gateway container (otherwise a
                       running gateway is left up; only its allowlist is refreshed).
 EOF
@@ -307,14 +307,18 @@ kubectl create configmap dotfiles-config -n code-server-work \
 # --- apply the chosen overlay ------------------------------------------------
 # Image tag precedence: --tag > IMAGE_TAG env > most recent git tag.
 # CI only rebuilds when image deps change (.github/workflows/build.yaml) and tags
-# each built commit with the short SHA it pushed as the image tag. Defaulting to
-# the latest git tag (not HEAD's SHA) means commits that DON'T trigger a rebuild
+# each built commit with both image tags it pushed: the short SHA and a vX.Y.Z
+# version. Either names the same image; the version is preferred so the choice is
+# deliberate, and plain tags are the fallback for commits built before versions
+# existed. Defaulting to the latest git tag (not HEAD's SHA) means commits that
+# DON'T trigger a rebuild
 # (allowlist/.env/docs edits) keep resolving to the existing image — so committing
 # them + re-running up.sh won't point the pod at a tag that was never built.
 # (Run `git fetch --tags` to pick up tags from CI builds you don't have locally.)
 IMAGE_TAG="${IMAGE_TAG_OVERRIDE:-${IMAGE_TAG:-}}"
 if [[ -z "$IMAGE_TAG" ]]; then
-  IMAGE_TAG=$(git -C "$PWD" describe --tags --abbrev=0 2>/dev/null || true)
+  IMAGE_TAG=$(git -C "$PWD" describe --tags --abbrev=0 --match 'v*' 2>/dev/null \
+    || git -C "$PWD" describe --tags --abbrev=0 2>/dev/null || true)
   [[ -z "$IMAGE_TAG" ]] && echo "   ⚠ no git tags found — falling back to :latest (let CI tag a build, or 'git fetch --tags')"
 fi
 [[ -z "$IMAGE_TAG" ]] && IMAGE_TAG="latest"

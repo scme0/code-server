@@ -21,19 +21,58 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write   # push the per-build git tag
+  contents: write   # push the per-build git tags
+
+# One build at a time, so two quick merges can't both work out the same next
+# version. Queued, not cancelled: every merge that reaches here is a real change
+# and gets its own version.
+concurrency:
+  group: build
+  cancel-in-progress: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # the version is worked out from existing v* tags
 
-      # Single source of truth for the image tag AND the git tag, so up.sh's
+      # Single source of truth for the image tags AND the git tags, so up.sh's
       # `git describe` resolves to exactly the image this build pushes.
-      - name: Compute short SHA
+      #
+      # The version lives only in git tags: no file to bump, no release PR. Each
+      # build takes the highest v* tag and bumps it by the squash commit's
+      # conventional-commit title: `type!:` or a BREAKING CHANGE footer is major,
+      # `feat` is minor, anything else (fix, build: bump claude-code...) is patch.
+      # A commit that already carries a v* tag is a re-run and keeps its version,
+      # so workflow_dispatch never mints a second one for the same image.
+      - name: Compute tags
         id: vars
-        run: echo "sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          set -euo pipefail
+          sha=$(git rev-parse --short HEAD)
+          version=$(git tag --points-at HEAD --list 'v*' --sort=-v:refname | head -1)
+          if [[ -z "$version" ]]; then
+            last=$(git tag --list 'v*' --sort=-v:refname | head -1)
+            if [[ -z "$last" ]]; then
+              version=v1.0.0
+            else
+              IFS=. read -r major minor patch <<<"${last#v}"
+              subject=$(git log -1 --format=%s)
+              body=$(git log -1 --format=%b)
+              if [[ "$subject" =~ ^[a-z]+(\([^\)]*\))?!: || "$body" == *"BREAKING CHANGE"* ]]; then
+                version="v$((major + 1)).0.0"
+              elif [[ "$subject" =~ ^feat(\([^\)]*\))?: ]]; then
+                version="v${major}.$((minor + 1)).0"
+              else
+                version="v${major}.${minor}.$((patch + 1))"
+              fi
+            fi
+          fi
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Building $sha as $version"
 
       - uses: docker/login-action@v3
         with:
@@ -50,13 +89,20 @@ jobs:
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/code-server:latest
             ${{ secrets.DOCKERHUB_USERNAME }}/code-server:${{ steps.vars.outputs.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/code-server:${{ steps.vars.outputs.version }}
           cache-from: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/code-server:buildcache
           cache-to: type=registry,ref=${{ secrets.DOCKERHUB_USERNAME }}/code-server:buildcache,mode=max
 
-      # Tag the built commit with the short SHA used as the image tag, so up.sh
-      # can pick it up via `git describe --tags --abbrev=0`. Force-push so manual
-      # workflow_dispatch re-runs of an already-tagged commit don't fail.
+      # Tag the built commit with both image tags, so up.sh can pick it up via
+      # `git describe` and Renovate in the home repo sees a new version.
+      #
+      # The SHA tag is force-pushed so manual workflow_dispatch re-runs of an
+      # already-tagged commit don't fail. The version tag is not: a re-run reuses
+      # the tag already on HEAD (a no-op push), and a genuine clash on a number
+      # should fail loudly rather than move a version to a different image.
       - name: Tag the built commit
         run: |
           git tag -f "${{ steps.vars.outputs.sha }}"
           git push origin "refs/tags/${{ steps.vars.outputs.sha }}" --force
+          git tag -f "${{ steps.vars.outputs.version }}"
+          git push origin "refs/tags/${{ steps.vars.outputs.version }}"
