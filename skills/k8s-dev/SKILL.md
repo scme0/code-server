@@ -25,6 +25,8 @@ skipped, and CI found the mistakes instead.
 | **k8s-run** | one command, once — a release build, a full suite before merging |
 | **k8s-dev** | the same command repeatedly — analyze before each push, iterating on a failure |
 
+If you would stop the pod right after one command, you wanted `k8s-run`.
+
 ## Usage
 
 ```sh
@@ -37,15 +39,20 @@ k8s-dev status
 `start` is idempotent — if the pod is already running it is reused, so it is
 safe to call again without checking.
 
-## Idle timeout
+## Idle timeout — leave the pod running
 
 PID 1 is a watchdog, not a `sleep`. Each `exec` touches a heartbeat, so an
 active session keeps the pod alive and an abandoned one exits on its own after
-`--ttl` seconds (default 3600).
+`--ttl` seconds of no `exec` (default 3600).
 
-This matters: a pod that lives until told otherwise is a pod someone forgets,
-and it holds a node slot while idling. Still call `k8s-dev stop` when finished
-— the timeout is a safety net, not the plan.
+**Do not `k8s-dev stop` after a check.** The whole point is that the next
+check finds the pod warm; stopping it means the next `start` pays the full
+setup again. An idle pod costs almost nothing — it is a shell loop sleeping —
+so let the TTL clean it up. Stop it only when the user asks, or when you need
+a fresh pod (different image, broken state).
+
+Don't pass a shorter `--ttl` than the default either; an hour of idle covers
+a review break or a long think between edits.
 
 ## Keep the toolchain inside the pod
 
@@ -72,7 +79,7 @@ toolchain itself, which you cannot otherwise reach.
 ## Worked example — Flutter analyze on Stitches
 
 ```sh
-k8s-dev start --image ghcr.io/cirruslabs/flutter@sha256:<digest> --dir stitches --ttl 1800
+k8s-dev start --image ghcr.io/cirruslabs/flutter@sha256:<digest> --dir stitches
 
 k8s-dev exec 'export TAR_OPTIONS=--no-same-owner
   mkdir -p /opt/fl && tar --no-same-owner -C /opt/fl -xzf /data/workspace/.flutter-3.47.2.tar.gz
@@ -81,9 +88,10 @@ k8s-dev exec 'export TAR_OPTIONS=--no-same-owner
   flutter pub get --enforce-lockfile'
 
 k8s-dev exec 'export PATH=/opt/fl/.flutter-3.47.2/bin:$PATH; flutter analyze lib'
-
-k8s-dev stop
 ```
+
+No `stop` at the end: the pod stays warm for the next check and expires
+itself after an hour idle.
 
 Measured: 29s of setup once, then analyze in 20s and 12s as the analysis server
 warms — against roughly 80s of CI that also requires a push first.

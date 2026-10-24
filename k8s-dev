@@ -39,9 +39,8 @@ k8s-dev: a warm pod you exec into, for repeated checks
   stop    delete it
   status  show what is running
 
-The pod exits on its own once TTL seconds pass with no exec. That matters:
-a pod that lives until told otherwise is a pod someone forgets, and it holds
-a node slot while it idles.
+The pod exits on its own once TTL seconds pass with no exec, so there is
+no need to stop it between checks — leave it warm and let the TTL clean up.
 EOF
 }
 
