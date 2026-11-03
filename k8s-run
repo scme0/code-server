@@ -122,7 +122,10 @@ POD_JSON=$(jq -n \
         ] | map(select(.value != ""))),
         securityContext: {
           allowPrivilegeEscalation: false,
-          capabilities: {drop: ["ALL"]},
+          # Root keeps only the file capabilities: on a local disk (ZFS on the
+          # NAS) root without DAC_OVERRIDE cannot write the workspace, which is
+          # owned by uid 1000. NFS on the Synology never checked them.
+          capabilities: {drop: ["ALL"], add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]},
           seccompProfile: {type: "RuntimeDefault"}
         },
         volumeMounts: [{
