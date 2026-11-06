@@ -32,8 +32,13 @@ RUN ARCH=$(dpkg --print-architecture) && \
     curl -sSfL https://raw.githubusercontent.com/ajeetdsouza/zoxide/main/install.sh \
       | sh -s -- --bin-dir /usr/local/bin
 
-# code-server
-RUN curl -fsSL https://code-server.dev/install.sh | sh
+# code-server. Pinned like CLAUDE_VERSION below, for the same reason: a bare
+# install.sh is evaluated once and then cached, so the layer stayed on 4.143.1
+# across rebuilds. 4.145.0 bundles shell-quote 1.12.0 (CVE-2026-102422,
+# critical in 4.143.1; 2026-11-06 vuln scan). Bump by hand (PR-only, see
+# bump-claude.yaml).
+ARG CODE_SERVER_VERSION=4.145.0
+RUN curl -fsSL https://code-server.dev/install.sh | sh -s -- --version "$CODE_SERVER_VERSION"
 
 # ttyd (arch-aware)
 RUN TTYD_VER=$(curl -s https://api.github.com/repos/tsl0922/ttyd/releases/latest \
