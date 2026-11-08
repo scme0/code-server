@@ -84,7 +84,8 @@ KEEPER
     --arg workdir "$workdir" --arg cmd "$keeper" --arg pvc "$PVC" \
     '{
       apiVersion: "v1", kind: "Pod",
-      metadata: {name: $name, namespace: $ns, labels: {app: "kdev"}},
+      # Trivy skips pods with this label key (home: trivy-operator values).
+      metadata: {name: $name, namespace: $ns, labels: {app: "kdev", "merlot.family/dev-tool": "true"}},
       spec: {
         restartPolicy: "Never",
         affinity: {podAffinity: {requiredDuringSchedulingIgnoredDuringExecution: [{

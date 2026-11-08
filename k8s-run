@@ -90,7 +90,9 @@ POD_JSON=$(jq -n \
     metadata: {
       name: $name,
       namespace: $ns,
-      labels: {app: "krun", "krun-image": $ishort, "krun-dir": $dir}
+      labels: {app: "krun", "krun-image": $ishort, "krun-dir": $dir,
+        # Trivy skips pods with this label key (home: trivy-operator values).
+        "merlot.family/dev-tool": "true"}
     },
     spec: {
       restartPolicy: "Never",
