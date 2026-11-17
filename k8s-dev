@@ -129,13 +129,19 @@ KEEPER
   return 0
 }
 
+CHOWN_WRAPPER='d=$PWD; /bin/sh -lc "$1"; rc=$?; if [ "$(id -u)" = 0 ] && [ "$d" != /data/workspace ] && [ "$d" != / ]; then find "$d" -xdev -uid 0 -exec chown -h 1000:1000 {} + 2>/dev/null; fi; exit $rc'
+
 cmd_exec() {
   local pod; pod=$(pod_name)
   [[ "$(pod_phase)" != "Running" ]] && {
     echo "$pod is not running — k8s-dev start first" >&2; exit 1; }
   # Reset the idle timer before the command, so a long one cannot expire midway.
   kubectl exec -n "$NAMESPACE" "$pod" -- touch /tmp/.kdev-heartbeat 2>/dev/null || true
-  kubectl exec -n "$NAMESPACE" "$pod" -- /bin/sh -lc "$*"
+  # The pod runs as root (the toolchain images keep their SDK caches root-owned),
+  # so hand anything the command created under the working dir back to uid 1000.
+  # Otherwise build output, .dart_tool etc. are root-owned and the caller can't
+  # delete its worktree. Skipped when the working dir is the whole workspace.
+  kubectl exec -n "$NAMESPACE" "$pod" -- /bin/sh -c "$CHOWN_WRAPPER" sh "$*"
 }
 
 cmd_stop() {
