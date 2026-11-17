@@ -79,6 +79,7 @@ POD_JSON=$(jq -n \
   --arg image   "$IMAGE" \
   --arg workdir "$WORKDIR" \
   --arg cmd     "$CMD" \
+  --arg wrapper 'd=$PWD; /bin/sh -c "$1"; rc=$?; if [ "$(id -u)" = 0 ] && [ "$d" != /data/workspace ] && [ "$d" != / ]; then find "$d" -xdev -uid 0 -exec chown -h 1000:1000 {} + 2>/dev/null; fi; exit $rc' \
   --arg pvc     "$PVC" \
   --arg ishort  "$IMAGE_SHORT" \
   --arg dir     "$DIR_LABEL" \
@@ -114,7 +115,9 @@ POD_JSON=$(jq -n \
         name: "runner",
         image: $image,
         workingDir: $workdir,
-        command: ["/bin/sh", "-c", $cmd],
+        # Root in the pod (SDK caches are root-owned): chown what the command
+        # created under the working dir back to uid 1000 (see k8s-dev).
+        command: ["/bin/sh", "-c", $wrapper, "sh", $cmd],
         # Inherit the gateway egress proxy so build pods are allowlisted too
         # (fail-closed: with no proxy set they simply cannot reach the internet).
         env: ([
